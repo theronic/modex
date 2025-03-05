@@ -7,6 +7,18 @@ Because it's native Clojure, you don't need to deal with Anthropic's [MCP Java S
 Modex implements the `stdio` transport, so no need for a proxy like
 [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy) to translate between SSE <=> stdio or vice versa.
 
+## Table of Contents
+
+1. [Quickstart](#quickstart)
+2. [What is MCP?](#what-is-mcp)
+3. [What can Modex do?](#what-can-modex-do)
+4. [Detailed Step-by-Step Instructions](#detailed-step-by-step-instructions)
+5. [Implementation](#implementation)
+6. [Project Status](#project-status)
+7. [Rationale](#rationale)
+8. [FAQ](#faq)
+9. [Licence](#licence)
+
 ## Quickstart
 
 1. `git clone git@github.com:theronic/modex.git`
@@ -124,15 +136,17 @@ MCP supports two transport types:
 
 There is an existing library [mcp-clj](https://github.com/hugoduncan/mcp-clj) that uses SSE, so it requires mcp-proxy to proxy from SSE <=> stdio. I was annoyed by this, so I made Modex.
 
-## Can I modify the server while an MCP Client (like Claude Desktop) is connected?
+## FAQ
 
-Not yet, but I'll add an nREPL soon so you can eval changes while Claude Desktop is connected to the process.
+### Can I modify the server while an MCP Client (like Claude Desktop) is connected?
+
+Not yet, but I'll add an nREPL soon so you can eval changes while Claude Desktop is connected to the process without rebuilding the uberjar.
 
 Btw. I tried to get it to run `clojure -M -m modex.mcp.server`, but you can't set Claude Desktop's working directory.
 
 So currently, I rebuild the uberjar and restart Claude Desktop. Will fix.
 
-## License
+## License 
 
 In summary:
 - **Free for non-commercial use**: Use it, modify it, share it under [GPLv3](https://www.gnu.org/licenses/gpl-3.0.html) at no cost, just keep it open source.
