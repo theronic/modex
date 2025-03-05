@@ -62,15 +62,25 @@
         ;; Test 3: Call the foo tool
         (let [call-id       (send-test-request "tools/call" {:name "foo"})
               call-response (read-test-response)]
-          (is (= call-id (:id call-response)))
-          (is (vector? (get-in call-response [:result :content])))
-          (is (= 1 (count (get-in call-response [:result :content]))))
-          (is (= "Hello, AI!" (get-in call-response [:result :content 0 :text]))))
+          (prn call-response)
+          (is (= {:jsonrpc "2.0"
+                  :id      3
+                  :result  {:content [{:type "text", :text "Hello, AI!"}]
+                            :isError false}}
+                 call-response)))
 
         (finally
-          ;; Clean up
-          (future-cancel server-future)
-          (.close client-writer)
-          (.close client-reader)
-          (.close server-writer)
-          (.close server-reader))))))
+          (testing "order matters here"
+            ;; First close client-writer to signal end-of-stream to the server
+            (.close client-writer)
+
+            ;; Give the server a brief period to process the disconnection
+            (Thread/sleep 100)
+
+            ;; Then cancel the server future
+            (future-cancel server-future)
+
+            ;; Clean up remaining resources
+            (.close client-reader)
+            (.close server-writer)
+            (.close server-reader)))))))

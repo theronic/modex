@@ -21,10 +21,10 @@ additional context to your AI models.
 
 ## Project Status
 
-- Tests in test/modex/mcp/server_test.clj are passing,
-- but there is a bug in test/modex/mcp/client_test.clj after I made some changes. Will fix.
-
-Anyway, the server works on _my_ machine.
+- [x] Passing tests
+- [ ] Ergonomics (AServer / AClient protocol?)
+- [ ] nREPL for live changes to running process
+- [ ] SSE support
 
 ## Rationale
 

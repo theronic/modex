@@ -42,6 +42,9 @@
     (when-let [line (.readLine reader)]
       (log "Received message:" line)
       (json/parse-string line true))
+    (catch java.io.IOException e
+      (log "IO error reading message:" (.getMessage e))
+      nil)  ;; Return nil to exit the loop for any IO error
     (catch Exception e
       (log "Error parsing message:" (.getMessage e))
       (.printStackTrace e (java.io.PrintWriter. *err*))
