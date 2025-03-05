@@ -1,0 +1,1 @@
+clojure -T:build uber
