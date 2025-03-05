@@ -36,6 +36,13 @@
    :inputSchema {:type       "object"
                  :properties {}}})
 
+(def inc-tool
+  {:name        "inc"
+   :description "A simple tool that increments a number."
+   :inputSchema {:type       "object"
+                 :properties {:x {:type "number"}}
+                 :required [:x]}})
+
 (defn read-json-rpc-message
   [reader]
   (try
@@ -85,7 +92,7 @@
 
 (defn handle-tools-list [{:keys [id]}]
   (log "Handling tools/list request with id:" id)
-  (json-rpc-result id {:tools [foo-tool]}))
+  (json-rpc-result id {:tools [foo-tool inc-tool]}))
 
 (defn handle-prompts-list [{:keys [id]}]
   (log "Handling prompts/list request with id:" id)
@@ -95,14 +102,25 @@
   (log "Handling resources/list request with id:" id)
   (json-rpc-result id {:resources []}))
 
-(defn handle-tools-call [{:keys [id params]}]
+(defn handle-inc-tool [{:as _request, :keys [id params]}]
+  (let [{args :arguments} params
+        {x :x} args]
+    (if (number? x)
+      (json-rpc-result id {:content [{:type "text" ; not sure if 'number' type is supported.
+                                      :text (str (inc x))}]
+                           :isError false})
+      (json-rpc-error id {:code error-code-parse-error :message "Pass a number as argument x to inc."}))))
+
+(defn handle-tools-call [{:as request, :keys [id params]}]
   (log "Handling tools/call request with id:" id "for tool:" (:name params))
-  (if (= (:name params) "foo")
-    (json-rpc-result id {:content [{:type "text"
-                                    :text "Hello, AI!"}]
-                         :isError false})
-    (json-rpc-error id {:code    error-code-invalid-params
-                        :message (str "Unknown tool: " (:name params))})))
+  (let [{tool-name :name} params]
+    (case tool-name
+      "inc" (handle-inc-tool request)
+      "foo" (json-rpc-result id {:content [{:type "text"
+                                            :text "Hello, AI!"}]
+                                 :isError false})
+      (json-rpc-error id {:code    error-code-invalid-params
+                          :message (str "Unknown tool: " tool-name)}))))
 
 (defn handle-ping [{:keys [id]}]
   (log "Handling ping request with id:" id)

@@ -52,4 +52,15 @@
       (is (= {:jsonrpc "2.0"
               :id      4
               :error   {:code    server/error-code-invalid-params
-                        :message "Unknown tool: unknown-tool"}}) missing-tool-response))))
+                        :message "Unknown tool: unknown-tool"}}) missing-tool-response)))
+
+  (testing "call inc tool increments number"
+    (let [tool-call-request {:id     5
+                             :method "tools/call"
+                             :params {:name "inc" :arguments {:x 123}}}
+          tool-response     (server/handle-request tool-call-request)]
+      (is (= {:jsonrpc "2.0"
+              :id      5
+              :result  {:isError false
+                        :content [{:type "text"
+                                   :text "124"}]}} tool-response)))))
