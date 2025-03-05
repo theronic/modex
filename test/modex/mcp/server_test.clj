@@ -3,51 +3,53 @@
             [modex.mcp.server :as server]))
 
 (deftest test-handle-initialize
-  (testing "handle-initialize returns correct response"
-    (let [request  {:id     1
-                    :method "initialize"
-                    :params {:protocolVersion "2024-11-05"
-                             :capabilities    {}
-                             :clientInfo      {:name "Test Client" :version "1.0.0"}}}
-          response (server/handle-request request)]
-      (is (= "2.0" (:jsonrpc response)))
-      (is (= 1 (:id response)))
-      (is (map? (:result response)))
-      (is (= "2024-11-05" (get-in response [:result :protocolVersion])))
-      (is (map? (get-in response [:result :capabilities])))
-      (is (map? (get-in response [:result :serverInfo]))))))
+  (testing "handle-initialize returns two messages: capabilities + init notifs."
+    (let [init-request {:id     1
+                        :method "initialize"
+                        :params {:protocolVersion "2024-11-05"
+                                 :capabilities    {}
+                                 :clientInfo      {:name "Test Client" :version "1.0.0"}}}
+          init-responses (server/handle-request init-request)]
+      (is (= [{:jsonrpc "2.0",
+               :id      1,
+               :result  {:protocolVersion "2024-11-05",
+                         :capabilities    {:tools     {:listChanged true}
+                                           :resources {:listChanged false}
+                                           :prompts   {:listChanged false}},
+                         :serverInfo      {:name "MCP Hello World Server", :version "1.0.0"}}}
+              {:jsonrpc "2.0", :method "notifications/initialized"}]
+             init-responses)))))
 
 (deftest test-handle-tools-list
   (testing "handle-tools-list returns correct response"
-    (let [request  {:id     2
-                    :method "tools/list"}
-          response (server/handle-request request)]
-      (is (= "2.0" (:jsonrpc response)))
-      (is (= 2 (:id response)))
-      (is (vector? (get-in response [:result :tools])))
-      (is (= 1 (count (get-in response [:result :tools]))))
-      (is (= "foo" (get-in response [:result :tools 0 :name]))))))
+    (let [req-tool-list {:id     2
+                         :method "tools/list"}
+          tool-list-response (server/handle-request req-tool-list)]
+      (is (= {:jsonrpc "2.0",
+              :id      2,
+              :result  {:tools [{:name        "foo",
+                                 :description "A simple tool that returns a greeting",
+                                 :inputSchema {:type "object", :properties {}}}]}}
+             tool-list-response)))))
 
 (deftest test-handle-tools-call
   (testing "handle-tools-call returns correct response for foo tool"
-    (let [request  {:id     3
-                    :method "tools/call"
-                    :params {:name "foo"}}
-          response (server/handle-request request)]
-      (is (= "2.0" (:jsonrpc response)))
-      (is (= 3 (:id response)))
-      (is (vector? (get-in response [:result :content])))
-      (is (= 1 (count (get-in response [:result :content]))))
-      (is (= "Hello, AI!" (get-in response [:result :content 0 :text])))))
+    (let [tool-call-request {:id     3
+                             :method "tools/call"
+                             :params {:name "foo"}}
+          tool-response     (server/handle-request tool-call-request)]
+      (is (= {:jsonrpc "2.0"
+              :id      3
+              :result  {:isError false
+                        :content [{:type "text"
+                                   :text "Hello, AI!"}]}} tool-response))))
 
   (testing "handle-tools-call returns error for unknown tool"
-    (let [request  {:id     4
-                    :method "tools/call"
-                    :params {:name "unknown-tool"}}
-          response (server/handle-request request)]
-      (is (= "2.0" (:jsonrpc response)))
-      (is (= 4 (:id response)))
-      (is (map? (:error response)))
-      (is (= -32602 (get-in response [:error :code])))
-      (is (= "Unknown tool: unknown-tool" (get-in response [:error :message]))))))
-
+    (let [tool-call-request     {:id     4
+                                 :method "tools/call"
+                                 :params {:name "unknown-tool"}}
+          missing-tool-response (server/handle-request tool-call-request)]
+      (is (= {:jsonrpc "2.0"
+              :id      4
+              :error   {:code    server/error-code-invalid-params
+                        :message "Unknown tool: unknown-tool"}}) missing-tool-response))))

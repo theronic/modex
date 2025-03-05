@@ -18,7 +18,7 @@
           client-writer      (io/writer client-to-server)
 
           ;; Start the server in a separate thread
-          server-future      (future (server/start-server server-reader server-writer))
+          server-future      (future (server/start-server! server-reader server-writer))
 
           ;; Create a mini client for testing
           request-id         (atom 0)

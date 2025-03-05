@@ -50,12 +50,17 @@ clojure -M -m modex.mcp.server
 
 ## Build an Uberjar
 
-    ./build.sh
+Run:
 
-or,
+```bash
+clojure -T:build uber
 ```
-    clojure -T:build uber
+
+or the helper which contains that command:
+```bash
+./build.sh
 ```
+(you might need to `chmod +x build.sh`)
 
 ## Configure Claude Desktop to use your Modex MCP Server:
 
@@ -80,12 +85,22 @@ Add an element under `mcpServers` so it looks like this (to run your MCP Server 
 Restart Claude Desktop, and you should be able to ask the LLM "what does the hello world tol say?" and it will run 
 the `foo` tool.
 
+I tried to get it to run `clojure -M -m modex.mcp.server`, but you can't set Claude Desktop's working directory.
+
+## Can I modify the server while an MCP Client (like Claude Desktop) is connected?
+
+Not yet, but I'll add an nREPL soon, so you can eval changes while Claude Desktop is connected to the process.
+
+Annoyingly, you can't change Claude Desktop's working directory for tools. 
+
+So currently, I rebuild the uberjar and restart Claude Desktop.
+
 ## License
 
 In summary:
-- **Free Use**: Use it, modify it, share it under [GPLv3](https://www.gnu.org/licenses/gpl-3.0.html)—no cost, just 
-  keep it open source.
-- **Proprietary Use**: Want to keep your changes private? Pay $20 once-off for a perpetual commercial license. This 
+- **Free for non-commercial use**: Use it, modify it, share it
+- under [GPLv3](https://www.gnu.org/licenses/gpl-3.0.html) at no cost, just keep it open source.
+- **Commercial use**: Want to keep your changes private? Pay $20 once-off for a perpetual commercial license. This 
   covers the cost of my AI tokens to keep building this in public.
 
 This tool is licensed under the [GNU General Public License v3.0 (GPLv3)](https://www.gnu.org/licenses/gpl-3.0.html). You are free to use, modify, and distribute it, provided that any derivative works are also licensed under the GPLv3 and made open source. This ensures the tool remains freely available to the community while requiring transparency for any changes.
