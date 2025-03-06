@@ -2,7 +2,9 @@
   (:require [clojure.test :refer :all]
             [modex.mcp.client :as client]
             [modex.mcp.server :as server]
-            [clojure.java.io :as io])
+            [clojure.java.io :as io]
+            [jsonista.core :as json]
+            [taoensso.timbre :as log])
   (:import [java.io PipedInputStream PipedOutputStream]))
 
 (deftest test-server-client-integration
@@ -25,15 +27,20 @@
           send-test-request  (fn [method & [params]]
                                (let [id      (swap! request-id inc)
                                      request {:jsonrpc "2.0" :id id :method method}
-                                     request (if params (assoc request :params params) request)]
-                                 (.write client-writer (str (cheshire.core/generate-string request) "\n"))
+                                     request (if params (assoc request :params params) request)
+                                     msg     (str (json/write-value-as-string request json/keyword-keys-object-mapper) "\n")]
+                                 (log/debug 'client-test-send msg)
+                                 (.write client-writer msg)
                                  (.flush client-writer)
                                  id))
 
           read-test-response (fn []
                                (let [line (.readLine client-reader)]
                                  (when line
-                                   (cheshire.core/parse-string line true))))]
+                                   (log/debug 'parsing-line line)
+                                   (let [parsed (json/read-value line json/keyword-keys-object-mapper)]
+                                     (log/debug 'parsed parsed)
+                                     parsed))))]
 
       (try
         ;; Test 1: Initialize
@@ -42,7 +49,9 @@
                                                     :capabilities    {:sampling {}}
                                                     :clientInfo      {:name "Test Client" :version "1.0.0"}})
               init-response     (read-test-response)
-              init-notification (read-test-response)]       ;; Capture the initialized notification
+              _                 (log/debug 'init-response init-response)
+              init-notification (read-test-response)
+              _                 (log/debug 'init-notification init-notification)] ;; Capture the initialized notification
 
           (is (= init-id (:id init-response)))
           (is (= "2024-11-05" (get-in init-response [:result :protocolVersion])))
@@ -55,14 +64,13 @@
         (let [list-id       (send-test-request "tools/list")
               list-response (read-test-response)]
           (is (= list-id (:id list-response)))
-          (is (vector? (get-in list-response [:result :tools])))
-          (is (= 1 (count (get-in list-response [:result :tools]))))
-          (is (= "foo" (get-in list-response [:result :tools 0 :name]))))
+          (is (= (get-in list-response [:result :tools])
+                 [server/foo-tool server/inc-tool])))
 
         ;; Test 3: Call the foo tool
         (let [call-id       (send-test-request "tools/call" {:name "foo"})
               call-response (read-test-response)]
-          (prn call-response)
+          (log/debug call-response)
           (is (= {:jsonrpc "2.0"
                   :id      3
                   :result  {:content [{:type "text", :text "Hello, AI!"}]

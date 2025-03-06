@@ -1,6 +1,7 @@
 (ns modex.mcp.client
   "MCP client implementation using the stdio transport mechanism."
-  (:require [cheshire.core :as json]
+  (:require [jsonista.core :as json]
+            [taoensso.timbre :as log]
             [clojure.java.io :as io])
   (:gen-class))
 
@@ -10,7 +11,7 @@
 ;; Logging helper
 (defn log [& args]
   (binding [*out* *err*]
-    (apply println args)
+    (log/debug "Client: " args)
     (flush)))
 
 ;; JSON-RPC helpers
@@ -19,7 +20,7 @@
                  :id request-id
                  :method method}
         request (if params (assoc request :params params) request)
-        json-str (json/generate-string request)]
+        json-str (json/write-value-as-string request json/keyword-keys-object-mapper)]
     (log "Sending request:" json-str)
     (.write writer (str json-str "\n"))
     (.flush writer)))
@@ -28,7 +29,7 @@
   (let [notification {:jsonrpc "2.0"
                       :method method}
         notification (if params (assoc notification :params params) notification)
-        json-str (json/generate-string notification)]
+        json-str (json/write-value-as-string notification json/keyword-keys-object-mapper)]
     (log "Sending notification:" json-str)
     (.write writer (str json-str "\n"))
     (.flush writer)))
@@ -40,7 +41,7 @@
         (do
           (log "Server closed connection")
           {:error "Server closed connection"})
-        (let [response (json/parse-string line true)]
+        (let [response (json/read-value line json/keyword-keys-object-mapper)]
           (log "Received response:" line)
           (cond
             ;; If it's a notification, process it and continue
@@ -81,10 +82,10 @@
         (try
           (loop []
             (when-let [line (.readLine err)]
-              (println "Server stderr:" line)
+              (log/debug "Server stderr:" line)
               (recur)))
           (catch Exception e
-            (println "Error reading server stderr:" (.getMessage e)))))
+            (log/debug "Error reading server stderr:" (.getMessage e)))))
 
       ;; Return the client state
       @state)
@@ -167,14 +168,14 @@
     (try
       (let [connection (connect-to-server server-command "2024-11-05")]
         (if (:error connection)
-          (println "Failed to connect:" (:error connection))
+          (log/debug "Failed to connect:" (:error connection))
           (do
-            (println "Connected successfully. Server info:"
+            (log/debug "Connected successfully. Server info:"
                      (get-in connection [:result :serverInfo]))
             (let [tools-result (list-tools)]
-              (println "Available tools:" (get-in tools-result [:result :tools]))
+              (log/debug "Available tools:" (get-in tools-result [:result :tools]))
               (let [call-result (call-tool "foo")]
-                (println "Tool response:"
+                (log/debug "Tool response:"
                          (get-in call-result [:result :content 0 :text])))))))
       (finally
         (stop-client)))))

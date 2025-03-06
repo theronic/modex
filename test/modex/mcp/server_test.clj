@@ -27,9 +27,8 @@
           tool-list-response (server/handle-request req-tool-list)]
       (is (= {:jsonrpc "2.0",
               :id      2,
-              :result  {:tools [{:name        "foo",
-                                 :description "A simple tool that returns a greeting",
-                                 :inputSchema {:type "object", :properties {}}}]}}
+              :result  {:tools [server/foo-tool
+                                server/inc-tool]}}
              tool-list-response)))))
 
 (deftest test-handle-tools-call

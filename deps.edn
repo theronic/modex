@@ -1,7 +1,16 @@
 {:paths   ["src" "test"]
- :deps    {org.clojure/clojure   {:mvn/version "1.12.0-alpha5"}
-           org.clojure/data.json {:mvn/version "2.5.0"}
-           cheshire/cheshire     {:mvn/version "5.13.0"}}
+ :deps    {org.clojure/clojure {:mvn/version "1.12.0-alpha5"}
+           ; For Schema  (could move to :dev alias)
+           metosin/malli       {:mvn/version "0.17.0"}      ; could move to :dev.
+           ;
+           ; For routing requests & tools:
+           metosin/reitit      {:mvn/version "0.8.0-alpha1"}
+
+           ; Interleaved logging
+           com.taoensso/timbre {:mvn/version "6.7.0-alpha1"}
+
+           ; For JSON encoding:
+           metosin/jsonista    {:mvn/version "0.3.13"}}
  :aliases {:dev   {}
            :build {:deps       {io.github.clojure/tools.build {:git/tag "v0.9.6" :git/sha "8e78bcc"}}
                    :ns-default build}}}
