@@ -1,9 +1,12 @@
 (ns modex.mcp.client-test
   (:require [clojure.test :refer :all]
-            [modex.mcp.client :as client]
-            [modex.mcp.server :as server]
-            [clojure.java.io :as io]
             [jsonista.core :as json]
+            [clojure.java.io :as io]
+            [modex.mcp.client :as client]
+            [modex.mcp.protocols :as p]
+            [modex.mcp.schema :as schema]
+            [modex.mcp.server :as server]
+            [modex.mcp.tools :as tools]
             [taoensso.timbre :as log])
   (:import [java.io PipedInputStream PipedOutputStream]))
 
@@ -20,7 +23,8 @@
           client-writer      (io/writer client-to-server)
 
           ;; Start the server in a separate thread
-          server-future      (future (server/start-server! server-reader server-writer))
+          mcp-handler        (p/->TestServer [tools/foo-tool tools/inc-tool])
+          server-future      (future (server/start-server! mcp-handler server-reader server-writer))
 
           ;; Create a mini client for testing
           request-id         (atom 0)
@@ -45,7 +49,7 @@
       (try
         ;; Test 1: Initialize
         (let [init-id           (send-test-request "initialize"
-                                                   {:protocolVersion "2024-11-05"
+                                                   {:protocolVersion schema/latest-protocol-version
                                                     :capabilities    {:sampling {}}
                                                     :clientInfo      {:name "Test Client" :version "1.0.0"}})
               init-response     (read-test-response)
@@ -71,7 +75,7 @@
         (let [call-id       (send-test-request "tools/call" {:name "foo"})
               call-response (read-test-response)]
           (log/debug call-response)
-          (is (= {:jsonrpc "2.0"
+          (is (= {:jsonrpc schema/json-rpc-version
                   :id      3
                   :result  {:content [{:type "text", :text "Hello, AI!"}]
                             :isError false}}

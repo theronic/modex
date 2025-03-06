@@ -1,6 +1,8 @@
 (ns modex.mcp.client
   "MCP client implementation using the stdio transport mechanism."
   (:require [jsonista.core :as json]
+            [modex.mcp.json-rpc :as json-rpc]
+            [modex.mcp.schema :as schema]
             [taoensso.timbre :as log]
             [clojure.java.io :as io])
   (:gen-class))
@@ -16,10 +18,8 @@
 
 ;; JSON-RPC helpers
 (defn- send-request [writer request-id method & [params]]
-  (let [request {:jsonrpc "2.0"
-                 :id request-id
-                 :method method}
-        request (if params (assoc request :params params) request)
+  (let [request  (json-rpc/method request-id method)
+        request  (if params (assoc request :params params) request)
         json-str (json/write-value-as-string request json/keyword-keys-object-mapper)]
     (log "Sending request:" json-str)
     (.write writer (str json-str "\n"))
@@ -27,9 +27,9 @@
 
 (defn- send-notification [writer method & [params]]
   (let [notification {:jsonrpc "2.0"
-                      :method method}
+                      :method  method}
         notification (if params (assoc notification :params params) notification)
-        json-str (json/write-value-as-string notification json/keyword-keys-object-mapper)]
+        json-str     (json/write-value-as-string notification json/keyword-keys-object-mapper)]
     (log "Sending notification:" json-str)
     (.write writer (str json-str "\n"))
     (.flush writer)))
@@ -68,14 +68,14 @@
                     (.exec (Runtime/getRuntime) server-command)
                     (.exec (Runtime/getRuntime)
                            (into-array String server-command)))
-          in (io/reader (.getInputStream process))  ; Server's stdout -> Client's input
-          out (io/writer (.getOutputStream process)) ; Client's output -> Server's stdin
-          err (io/reader (.getErrorStream process))]
+          in      (io/reader (.getInputStream process))     ; Server's stdout -> Client's input
+          out     (io/writer (.getOutputStream process))    ; Client's output -> Server's stdin
+          err     (io/reader (.getErrorStream process))]
 
       (reset! state {:process process
-                     :in in
-                     :out out
-                     :err err})
+                     :in      in
+                     :out     out
+                     :err     err})
 
       ;; Start a thread to log server stderr output
       (future
@@ -100,7 +100,7 @@
   (log "Stopping client")
   (when-let [{:keys [process in out err]} @state]
     (try
-      (.close out)  ; Close stdin to the server process
+      (.close out)                                          ; Close stdin to the server process
       (.close in)
       (.close err)
 
@@ -123,10 +123,10 @@
   (log "Initializing client with protocol version:" protocol-version)
   (let [{:keys [in out]} @state
         request-id 1
-        params {:protocolVersion protocol-version
-                :capabilities {:sampling {}}
-                :clientInfo {:name "MCP Hello World Client"
-                             :version "1.0.0"}}]
+        params     {:protocolVersion protocol-version
+                    :capabilities    {:sampling {}}
+                    :clientInfo      {:name    "MCP Hello World Client"
+                                      :version "1.0.0"}}]
     (send-request out request-id "initialize" params)
     (let [response (read-response in request-id)]
       ;; Send initialized notification
@@ -145,8 +145,8 @@
   (log "Calling tool:" tool-name)
   (let [{:keys [in out]} @state
         request-id 3
-        params {:name tool-name}
-        params (if arguments (assoc params :arguments arguments) params)]
+        params     {:name tool-name}
+        params     (if arguments (assoc params :arguments arguments) params)]
     (send-request out request-id "tools/call" params)
     (read-response in request-id)))
 
@@ -166,16 +166,16 @@
   (log "Client starting via -main")
   (let [server-command (or (first args) "clojure -M:run-server")]
     (try
-      (let [connection (connect-to-server server-command "2024-11-05")]
+      (let [connection (connect-to-server server-command schema/latest-protocol-version)]
         (if (:error connection)
           (log/debug "Failed to connect:" (:error connection))
           (do
             (log/debug "Connected successfully. Server info:"
-                     (get-in connection [:result :serverInfo]))
+                       (get-in connection [:result :serverInfo]))
             (let [tools-result (list-tools)]
               (log/debug "Available tools:" (get-in tools-result [:result :tools]))
               (let [call-result (call-tool "foo")]
                 (log/debug "Tool response:"
-                         (get-in call-result [:result :content 0 :text])))))))
+                           (get-in call-result [:result :content 0 :text])))))))
       (finally
         (stop-client)))))
