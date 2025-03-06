@@ -22,18 +22,12 @@
 
 ; MCP Standard Error Codes:
 ; (SDKs and applications can define their own error codes above -32000)
+; Todo: move to schema.
 (def error-code-parse-error -32700)
 (def error-code-invalid-request -32600)
 (def error-code-method-not-found -32601)
 (def error-code-invalid-params -32602)
 (def error-code-internal-error -32603)
-
-(defn log
-  "Redirects writes to stderr so logs show up in ~/Library/Logs/Claude/mcp*.log"
-  [& args]
-  (binding [*out* *err*]
-    (log/debug "Server: " args)
-    (flush)))
 
 ;; Server capabilities and info
 (def server-capabilities
