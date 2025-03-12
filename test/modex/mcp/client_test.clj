@@ -76,8 +76,17 @@
               call-response (read-test-response)]
           (log/debug call-response)
           (is (= {:jsonrpc schema/json-rpc-version
-                  :id      3
+                  :id      call-id
                   :result  {:content [{:type "text", :text "Hello, AI!"}]
+                            :isError false}}
+                 call-response)))
+
+        (let [call-id       (send-test-request "tools/call" {:name "inc" :parameters {:x 5}})
+              call-response (read-test-response)]
+          (log/debug call-response)
+          (is (= {:jsonrpc schema/json-rpc-version
+                  :id      call-id
+                  :result  {:content [{:type "text", :text "6"}]
                             :isError false}}
                  call-response)))
 

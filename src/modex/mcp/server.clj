@@ -1,10 +1,10 @@
 (ns modex.mcp.server
+  "Handles JSON RPC interface and dispatches to an MCP server "
   (:require [jsonista.core :as json]
             [taoensso.timbre :as log]
-            [reitit.core :as r]
             [modex.mcp.json-rpc :as json-rpc]
-            [modex.mcp.protocols :as p :refer [AServer]])
-  (:gen-class))
+            [modex.mcp.protocols :as mcp :refer [AServer]])
+  (:gen-class)) ; gen-class should move to core with main.
 
 (def json-rpc-version "2.0")
 
@@ -101,7 +101,8 @@
   (json-rpc/result id {:resources []}))
 
 (defn handle-inc-tool [server {:as _request, :keys [id params]}]
-  (let [{args :arguments} params
+  ; todo: argument unbundling should be handled by our MCP server & tool abstractions.
+  (let [{args :parameters} params
         {x :x} args]
     (if (number? x)
       (json-rpc/result id {:content [{:type "text"          ; not sure if 'number' type is supported.
@@ -200,10 +201,11 @@
        (log/debug "Critical error in server:" (.getMessage e))
        (.printStackTrace e (java.io.PrintWriter. *err*))))))
 
+; main should move to modex.mcp.core
 (defn -main [& args]
   (log/debug "Server starting via -main")
   (try
-    (let [mcp-handler (p/->TestServer [foo-tool inc-tool])]
+    (let [mcp-handler (mcp/->TestServer [foo-tool inc-tool])]
       (start-server! mcp-handler))
     (catch Throwable t
       (log/debug "Fatal error in -main:" (.getMessage t))

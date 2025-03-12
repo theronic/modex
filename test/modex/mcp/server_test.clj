@@ -1,6 +1,7 @@
 (ns modex.mcp.server-test
   (:require [clojure.test :refer :all]
-            [modex.mcp.protocols :as p]
+            [clojure.core :as cc]
+            [modex.mcp.protocols :as mcp]
             [modex.mcp.schema :as schema]
             [modex.mcp.server :as server]
             [modex.mcp.tools :as tools]))
@@ -12,7 +13,7 @@
                           :params {:protocolVersion schema/latest-protocol-version
                                    :capabilities    {}
                                    :clientInfo      {:name "Test Client" :version "1.0.0"}}}
-          mcp-server     (p/->TestServer [tools/inc-tool tools/foo-tool])
+          mcp-server     (mcp/->TestServer [tools/inc-tool tools/foo-tool])
           init-responses (server/handle-request mcp-server init-request)]
       (is (= [{:jsonrpc "2.0",
                :id      1,
@@ -28,7 +29,9 @@
   (testing "handle-tools-list returns correct response"
     (let [req-tool-list      {:id     2
                               :method "tools/list"}
-          mcp-server         (p/->TestServer [tools/inc-tool tools/foo-tool])
+          mcp-server         (mcp/->server {:tools (mcp/tools
+                                                     (inc [x] (cc/inc x))
+                                                     (foo [] (str "Hello, World!")))})
           tool-list-response (server/handle-request mcp-server req-tool-list)]
       (is (= {:jsonrpc "2.0",
               :id      2,
@@ -41,7 +44,7 @@
     (let [tool-call-request {:id     3
                              :method "tools/call"
                              :params {:name "foo"}}
-          mcp-server         (p/->TestServer [tools/inc-tool tools/foo-tool])
+          mcp-server         (mcp/->TestServer [tools/inc-tool tools/foo-tool])
           tool-response     (server/handle-request mcp-server tool-call-request)]
       (is (= {:jsonrpc "2.0"
               :id      3
@@ -53,7 +56,7 @@
     (let [tool-call-request     {:id     4
                                  :method "tools/call"
                                  :params {:name "unknown-tool"}}
-          mcp-server         (p/->TestServer [tools/inc-tool tools/foo-tool])
+          mcp-server         (mcp/->TestServer [tools/inc-tool tools/foo-tool])
           missing-tool-response (server/handle-request mcp-server tool-call-request)]
       (is (= {:jsonrpc "2.0"
               :id      4
@@ -63,8 +66,8 @@
   (testing "call inc tool increments number"
     (let [tool-call-request {:id     5
                              :method "tools/call"
-                             :params {:name "inc" :arguments {:x 123}}}
-          mcp-server         (p/->TestServer [tools/inc-tool tools/foo-tool])
+                             :params {:name "inc" :parameters {:x 123}}}
+          mcp-server         (mcp/->TestServer [tools/inc-tool tools/foo-tool])
           tool-response     (server/handle-request mcp-server tool-call-request)]
       (is (= {:jsonrpc "2.0"
               :id      5
