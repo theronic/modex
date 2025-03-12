@@ -201,7 +201,7 @@
        (log/debug "Critical error in server:" (.getMessage e))
        (.printStackTrace e (java.io.PrintWriter. *err*))))))
 
-; main should move to modex.mcp.core
+; this has moved to modex.mcp.core, but need to update entry points in callers.
 (defn -main [& args]
   (log/debug "Server starting via -main")
   (try
