@@ -1,7 +1,7 @@
 (ns build
   (:require [clojure.tools.build.api :as b]))
 
-(def lib 'modex/mcp-server)
+(def lib 'modex/mcp)
 (def version "0.1.0")
 (def class-dir "target/classes")
 (def basis (b/create-basis {:project "deps.edn"}))
@@ -20,5 +20,5 @@
       (b/uber {:class-dir class-dir
                :uber-file uber-file
                :basis basis
-               :main 'modex.mcp.server})
+               :main 'modex.mcp.core})
       (println (str "Compiled uberjar to path: " uber-file)))
