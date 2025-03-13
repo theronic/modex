@@ -23,7 +23,7 @@ Modex implements the `stdio` transport, so no need for a proxy like
 
 1. `git clone git@github.com:theronic/modex.git`
 2. `cd modex`
-3. `./build.sh` builds an uberjar at `target/modex-mcp-server-0.1.0.jar`.
+3. `./build.sh` builds an uberjar at `target/modex-mcp-0.1.0.jar`.
 4. Open your Claude Desktop Config at `~/Library/Application\ Support/Claude/claude_desktop_config.json`
 5. Configure a new MCP Server that will run the uberjar at its _full path_:
 
@@ -32,7 +32,7 @@ Modex implements the `stdio` transport, so no need for a proxy like
   "mcpServers": {
     "modex-mcp-hello-world": {
       "command": "java",
-      "args": ["-jar", "/Users/your-username/code/modex/target/modex-mcp-server-0.1.0.jar"]
+      "args": ["-jar", "/Users/your-username/code/modex/target/modex-mcp-0.1.0.jar"]
     }
   },
   "globalShortcut": ""
@@ -92,16 +92,16 @@ Add an element under `mcpServers` so it looks like this:
 ```json
 {
   "mcpServers": {
-    "modex-mcp-hello-world": {
+    "modex": {
       "command": "java",
-      "args": ["-jar", "/Users/your-username/code/modex/target/modex-mcp-server-0.1.0.jar"]
+      "args": ["-jar", "/Users/your-username/code/modex/target/modex-mcp-0.1.0.jar"]
     }
   },
   "globalShortcut": ""
 }
 ```
 
-This tells Claude Desktop there is a tool named `modex-mcp-hello-world` and it can connect to by running `java -jar /path/to/your/uber.jar`.
+This tells Claude Desktop there is a tool named `modex` and it can connect to by running `java -jar /path/to/your/uber.jar`.
 
 The way this works is that your local MCP Client (i.e. Claude Desktop), starts your MCP server process and communicates with it via stdin/stdout pipes.
 

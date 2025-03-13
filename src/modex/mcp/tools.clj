@@ -1,111 +1,166 @@
 (ns modex.mcp.tools
   (:require [modex.mcp.schema :as schema]
+            [clojure.string :as string]
             [modex.mcp.json-rpc :as json-rpc]
             [taoensso.timbre :as log]))
 
-(defrecord ToolBelt [tools])
+(defrecord Parameter [name doc type required])
 
-(defprotocol IToolBelt
-  (list-tools [this] "Returns a collection of supported tool names and metadata.")
-  (call-tool [this tool-name args] "Invokes the named tool with args."))
+(defprotocol ITool
+  (required-args [this])
+  (input-schema [this]))
 
-(extend-protocol IToolBelt
-  ToolBelt
-  (call-tool [this tool-name args]
-    (if-let [tool-info (get (:tools this) tool-name)]
-      (apply (:fn tool-info) args)
-      (throw (ex-info (str "Unknown tool: " tool-name) {:tool-name tool-name
-                                                        :available (keys (:tools this))}))))
+(defn tool-arg->property
+  [^Parameter tool-arg]
+  (select-keys tool-arg [:type :doc]))
 
-  (list-tools [this]
-    (map (fn [[tool-name info]]
-           {:name tool-name
-            :doc  (:doc info)
-            :args (:args info)})
-         (:tools this))))
-
-(defprotocol ATool
-  (doc-string [this])
-  (return-type [this]) ; e.g. :text, :number
-  (arguments [this])
-  (call [this arguments]))
-
-(defmacro tools [& tool-defs]
-  (let [tools# (map (fn [[t-name# & body#]]
-                      (let [t-key# (keyword t-name#)
-
-                            ;; Handle optional docstring
-                            [docstring# rest-body#] (if (string? (first body#))
-                                                      [(first body#) (rest body#)]
-                                                      [(str t-name#) body#])
-
-                            ;; Get args vector and function body
-                            args-vec# (first rest-body#)
-                            fn-body# (rest rest-body#)
-
-                            ;; Process args for metadata
-                            arg-info# (vec
-                                        (for [arg# args-vec#]
-                                          (let [m# (meta arg#)]
-                                            {:name (str (symbol arg#))
-                                             :doc (or (:doc m#) (str (symbol arg#)))
-                                             :type (or (:type m#) :text)})))]
-
-                        ; this should construct a Tool record that has details about name, doc, return type and argument types.
-                        [t-key# {:fn   `(fn ~args-vec# ~@fn-body#)
-                                 :doc  docstring#
-                                 :args arg-info#}]))
-                    tool-defs)
-        tool-map# (into {} tools#)]
-    tool-map#))
-
-(comment (macroexpand '(tools
-                         (add [a b] (+ a b)))))
-
-(defmacro deftools [name & tool-defs]
-  `(def ~name (tools ~@tool-defs)))
+(defn tool-args->input-schema [args]
+  (into {}
+        (for [tool-arg args]
+          [(:name tool-arg) (tool-arg->property tool-arg)])))
 
 (comment
-  (macroexpand '(deftools my-tools
-                          (add [a b] (+ a b)))))
+  (tool-args->input-schema
+    [(map->Parameter {:name   :name
+                      :doc      "Person's name"
+                      :type     :text
+                      :required true})
+     (map->Parameter {:name   :x
+                      :doc      "Person's Age (optional)"
+                      :type     :number
+                      :required false})]))
 
-;; old stuff:
+(defrecord Tool [name doc args handler]
+  ITool
+  (required-args [this] (->> (filter :required args)
+                             (mapv :name)))
+  (input-schema [^Tool this]
+    {:type       "object" ; object = map.
+     :required   (required-args this) ; strings?
+     :properties (tool-args->input-schema args)}))
 
-(defn handle-inc-tool [{:as _request, :keys [id params]}]
-  (let [{args :arguments} params
-        {x :x} args]
-    (if (number? x)
-      (json-rpc/result id {:content          [{:type "text"          ; not sure if 'number' type is supported.
-                                               :text (str (inc x))}]
-                           :isError false})
-      (json-rpc/error id {:code schema/error-parse :message "Pass a number as argument x to inc."}))))
+(comment
+  (let [tool (->Tool :foo "test"
+                     [(map->Parameter {:name   :name
+                                       :doc      "Person's name"
+                                       :type     :text
+                                       :required true})]
+                     (fn [name] (str "Hi there, " name "!")))]
+    [(required-args tool)
+     (input-schema tool)]))
 
-(defn handle-tools-call [{:as request, :keys [id params]}]
-  (log/debug "Handling tools/call request with id:" id "for tool:" (:name params))
-  (let [{tool-name :name} params]
-    (case tool-name
-      "inc" (handle-inc-tool request)
-      "foo" (json-rpc/result id {:content          [{:type "text"
-                                                     :text "Hello, AI!"}]
-                                 :isError false})
-      (json-rpc/error id {:code             schema/error-invalid-params ; todo handle throw.
-                          :message (str "Unknown tool: " tool-name)}))))
+(defn missing-elements [required passed]
+  (remove (set passed) (set required)))
 
-;; Define our "foo" tool
-(def foo-tool
-  {:name        "foo"
-   :description "A simple tool that returns a greeting"
-   :inputSchema {:type       "object"
-                 :properties {}}})
+(comment
+  (missing-elements #{:a :b} [:a]))
 
-(def inc-tool
-  {:name        "inc"
-   :description "A simple tool that increments a number."
-   :inputSchema {:type       "object"
-                 :properties {:x {:type "number"}}
-                 ; require has to be a string, because arrays are not coerced to keywords.
-                 :required   ["x"]}})
+(defn invoke-tool
+  "Given a Tool & a map of arguments, arranges arguments and applies to handler in same thread.
+  ; TODO: check missing required vs. optional args.
+  ; TODO: Malli schema validation.
+  "
+  [^Tool {:as _tool :keys [handler args]}, arg-map]
+  ;(log/debug "arg-map:" arg-map)
+  (let [required-args    (filter :required args)
+        required-key-set (set (map :name required-args))
+        ;_ (log/debug "required keys:" required-key-set)
+        missing-args     (missing-elements required-key-set (keys arg-map))
+        _                (when (seq missing-args) (log/debug "missing:" missing-args))
+        ; todo: switch to Malli schemas for required.
+        _                (assert (empty? missing-args)
+                                 (str "Missing tool parameters: " (string/join "," missing-args)))
+        arg-vec (->> (map :name args)
+                     (map arg-map))]
+    ;(log/debug "arg-vec:" arg-vec)
+    ;(log/debug "handler" handler)
+    (apply handler arg-vec)))
 
-(defrecord IncTool []
-  ATool
-  (call [this {:as _args :keys [x]}] (inc x)))
+(comment
+  (let [tool (->Tool :foo "test"
+                     [(map->Parameter {:name   :name
+                                       :doc      "Person's name"
+                                       :type     :text
+                                       :required true})]
+                     (fn [name] (str "Hi there, " name "!")))]
+    (invoke-tool tool {:name "Petrus"})))
+
+(defmacro tool [[tool-name & tool-body]]
+  (let [tool-key# (keyword tool-name)
+
+        ;; Handle optional docstring
+        [docstring# rest-body#] (if (string? (first tool-body))
+                                  [(first tool-body) (rest tool-body)]
+                                  [(str tool-name) tool-body])
+
+        ;; Get args vector and function body
+        args-vec# (first rest-body#)
+        fn-body#  (rest rest-body#)]
+
+    ;; Return a quasiquoted form that will be evaluated at runtime
+    `(let [arg-info# (vec (for [arg# '~args-vec#]
+                            (let [m# (meta arg#)]
+                              (map->Parameter
+                                {:name     (keyword arg#)
+                                 :doc      (or (:doc m#) (str arg#))
+                                 :type     (or (:type m#) :text)
+                                 :required true}))))]
+       (->Tool ~tool-key# ~docstring# arg-info# (fn ~args-vec# ~@fn-body#)))))
+
+(comment
+  (defn add-handler [x y] (+ x))
+  (tool (add [x y] (add-handler x y)))
+  (macroexpand)
+  ((:handler (tool (add [x y] (+ x y)))) 5 6))
+
+;(defmacro tools
+;  "Returns a map of tool name => Tool.
+;
+;  Syntax like defrecord, but supports metadata with {:keys [type doc]} for each argument:
+;
+;  (tools
+;    (add \"Adds two numbers, a & b.\"
+;      [^{:type :number, :doc \"First Number\"} a b] (+ a b))
+;    (subtract [x y] (+ x z)))"
+;  [& tool-defs]
+;  `(let [tools#     (map make-tool ~@tool-defs)
+;         tool-map#  (group-by :name tools#)]
+;     tool-map#))
+
+(defmacro tools
+  "Returns a map of tool name => Tool.
+
+  Syntax like defrecord, but supports metadata with {:keys [type doc]} for each argument:
+
+  (tools
+    (add \"Adds two numbers, a & b.\"
+      [^{:type :number, :doc \"First Number\"} a b] (+ a b))
+    (subtract [x y] (+ x z)))"
+  [& tool-defs]
+  `(let [tools# (vector ~@(map (fn [tool-def] `(tool ~tool-def)) tool-defs)) ; there is better way
+         tool-map# (into {} (for [tool# tools#]
+                              [(:name tool#) tool#]))]
+     tool-map#))
+
+(comment
+  (tools
+    (add [a b] (+ a b)))
+
+  (->Tool)
+  (macroexpand '(tools
+                  (add [a b] (+ a b)))))
+
+(defmacro deftools
+  "Just calls tools and binds to a symbol via def. Dubious merit."
+  [name & tool-defs]
+  `(def ~name (tools ~@tool-defs)))
+
+(defn tool->json-schema
+  "Builds MCP-compatible {:keys [name description inputSchema]},
+  where inputSchema has {:keys [type required properties]},
+  where properties has each tool, and required is list of arg names."
+  [^Tool
+   {:as tool :keys [name doc]}]
+  {:name        name
+   :description doc
+   :inputSchema (input-schema tool)})

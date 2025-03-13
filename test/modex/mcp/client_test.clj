@@ -2,13 +2,23 @@
   (:require [clojure.test :refer :all]
             [jsonista.core :as json]
             [clojure.java.io :as io]
+            [clojure.core :as cc]
             [modex.mcp.client :as client]
-            [modex.mcp.protocols :as p]
+            [modex.mcp.protocols :as mcp]
             [modex.mcp.schema :as schema]
             [modex.mcp.server :as server]
             [modex.mcp.tools :as tools]
             [taoensso.timbre :as log])
   (:import [java.io PipedInputStream PipedOutputStream]))
+
+(def tool-fixtures
+  (tools/tools
+    (foo "Greets a person by name."
+         [^{:type :text :doc "A person's name."} name]
+         (str "Hello, " name "!"))
+    (inc "A simple tool that returns a greeting"
+         [^{:type :number :doc "A number to increment."} x]
+         (cc/inc x))))
 
 (deftest test-server-client-integration
   (testing "Server responds correctly to requests over piped streams"
@@ -23,8 +33,8 @@
           client-writer      (io/writer client-to-server)
 
           ;; Start the server in a separate thread
-          mcp-handler        (p/->TestServer [tools/foo-tool tools/inc-tool])
-          server-future      (future (server/start-server! mcp-handler server-reader server-writer))
+          mcp-server         (server/->server {:tools tool-fixtures})
+          stdio-server       (future (server/start-server! mcp-server server-reader server-writer))
 
           ;; Create a mini client for testing
           request-id         (atom 0)
@@ -65,14 +75,29 @@
           (is (= "notifications/initialized" (:method init-notification))))
 
         ;; Test 2: List tools
-        (let [list-id       (send-test-request "tools/list")
-              list-response (read-test-response)]
-          (is (= list-id (:id list-response)))
-          (is (= (get-in list-response [:result :tools])
-                 [server/foo-tool server/inc-tool])))
+        (let [list-tools-id       (send-test-request "tools/list")
+              list-tools-response (read-test-response)]
+          (prn list-tools-response)
+          (is (= {:id      list-tools-id
+                  :jsonrpc "2.0"
+                  :result  {:tools [{:name        "foo"
+                                     :description "Greets a person by name."
+                                     :inputSchema {:properties {:name {:doc "A person's name."
+                                                                       :type "text"}}
+                                                   :type       "object"
+                                                   :required   ["name"]}}
+                                    {:name        "inc"
+                                     :description "A simple tool that returns a greeting"
+                                     :inputSchema {:properties {:x {:doc "A number to increment."
+                                                                    :type "number"}}
+                                                   :type       "object"
+                                                   :required   ["x"]}}]}}
+                 list-tools-response)))
 
         ;; Test 3: Call the foo tool
-        (let [call-id       (send-test-request "tools/call" {:name "foo"})
+        ;; ; actually arrives from client:
+        ;; {:jsonrpc "2.0", :method "tools/call", :params {:arguments {:x 5}, :name "inc"}, :id 6}
+        (let [call-id       (send-test-request "tools/call" {:name "foo" :arguments {:name "AI"}})
               call-response (read-test-response)]
           (log/debug call-response)
           (is (= {:jsonrpc schema/json-rpc-version
@@ -81,12 +106,12 @@
                             :isError false}}
                  call-response)))
 
-        (let [call-id       (send-test-request "tools/call" {:name "inc" :parameters {:x 5}})
+        (let [call-id       (send-test-request "tools/call" {:name "inc" :arguments {:x 5}})
               call-response (read-test-response)]
           (log/debug call-response)
           (is (= {:jsonrpc schema/json-rpc-version
                   :id      call-id
-                  :result  {:content [{:type "text", :text "6"}]
+                  :result  {:content [{:type "number", :text "6"}]
                             :isError false}}
                  call-response)))
 
@@ -99,7 +124,7 @@
             (Thread/sleep 100)
 
             ;; Then cancel the server future
-            (future-cancel server-future)
+            (future-cancel stdio-server)
 
             ;; Clean up remaining resources
             (.close client-reader)

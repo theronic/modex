@@ -1,69 +1,36 @@
 (ns modex.mcp.tools-test
   (:require [clojure.test :as t :refer [deftest testing is]]
-            [modex.mcp.protocols :as mcp]))
-
-(deftools my-tool-belt
-          (greet
-            "Greets a person"
-            [^{:type :text :doc "Person's name"} name
-             ^{:type :number :doc "Person's age"} age]
-            (str "Hello, " name "! You are " age " years old."))
-
-          (add
-            "Adds two numbers"
-            [^{:type :number :doc "First number"} a
-             ^{:type :number :doc "Second number"} b]
-            (+ a b))
-
-          (subtract
-            "Subtracts two numbers"
-            [^{:type :number :doc "First number"} a
-             ^{:type :number :doc "Second number"} b]
-            (external-dec-handler a b))
-
-          (current-time
-            "Gets the current time"
-            []
-            (str (java.time.Instant/now))))
+            [modex.mcp.tools :as tools]))
 
 (deftest tools-tests
-  (testing "We can define tools via mcp/tools macro that feels like defrecord"
-    (let [my-tools (mcp/tools
-                     (add "Adds two numbers." [x y] (+ x y)))]
-      (testing "tool docstring + arg docs default to names. argument types to :text"
-        (is (= [{:name :add
-                 :doc  "Adds two numbers."
-                 :args [{:name "x", :doc "x", :type :text}
-                        {:name "y", :doc "y", :type :text}]}]
-               (mcp/list-tools my-tools))))))
+
+  (testing "we can make a tool"
+    (let [adder (tools/tool (add [x y] (+ x y)))]
+      (testing "and we can invoke that tool with an argument map."
+        (is (= 13 (tools/invoke-tool adder {:x 6 :y 7}))))))
+
+  (testing "tools macro just calls tool for each tool definition and returns a map from (keyword tool-name) => tool."
+    (let [my-tools (tools/tools
+                     (add "Adds two numbers." [x y] (+ x y))
+                     (subtract "Subtracts two numbers (b from a)" [a b] (- a b)))]
+      (testing "can invoke tool"
+        (let [{:keys [add subtract]} my-tools]
+          (is (= 11 (tools/invoke-tool add {:x 5, :y 6})))
+          (is (= 3 (tools/invoke-tool subtract {:a 10 :b 7})))))))
 
   (testing "docstrings are optional (defaults to tool name)")
-  (let [my-tools (mcp/tools
-                   (add [x y] (+ x y)))]
-    (testing "tool docstring + arg docs default to names. argument types to :text"
-      (is (= [{:name :add
-               :doc  "add"
-               :args [{:name "x", :doc "x", :type :text}
-                      {:name "y", :doc "y", :type :text}]}]
-             (mcp/list-tools my-tools)))))
-
-  (testing "you can call a tool"
-    (is (= 11 (mcp/call-tool my-tools :add [5 6]))))
-
-  (testing "Each tool can specify argument type & docstring with preceding metadata. Docstring defaults to arg name."
-    (let [tools-with-docs (mcp/tools
-                            (add [^{:type :number :doc "First Number"} x
-                                  ^{:type :number} y]
-                                 (+ x y)))]
-      (testing "we can set argument :type"
-        (is (= [{:name :add
-                 :doc  "add"
-                 :args [{:name "x", :doc "First number", :type :number}
-                        {:name "y", :doc "y", :type :number}]}]
-               (mcp/list-tools tools-with-docs))))))
+  (let [add-tool (tools/tool
+                   (add [^{:type :number} x
+                         ^{:type :number} y]
+                        (+ x y)))]
+    (is (= ({:name :add
+             :doc  "add"
+             :args [(tools/->Parameter :x "x" :number true)
+                    (tools/->Parameter :y "y" :number true)]}
+            (dissoc add-tool :handler)))))
 
   (testing "we can define multiple tools"
-    (let [multiple-tools (mcp/tools
+    (let [multiple-tools (tools/tools
                            (greet [^{:type :string} name
                                    ^{:type :number} birth-year]
                                   (let [current-year (+ 1900 (.getYear (java.util.Date.)))] ; => 2025])
@@ -73,25 +40,32 @@
                                 (+ a b))
                            (subtract [^{:type :number} x
                                       ^{:type :number} y]
-                                     (+ x y)))])
+                                     (+ x y)))]
 
-    (is (= [{:name :greet,
-             :doc  "greet",
-             :args [{:name "name", :doc "name", :type :string} {:name "birth-year", :doc "birth-year", :type :number}]}
-            {:name :add, :doc "add", :args [{:name "a", :doc "a", :type :number} {:name "b", :doc "b", :type :number}]}
-            {:name :subtract, :doc "subtract", :args [{:name "x", :doc "x", :type :number} {:name "y", :doc "y", :type :number}]}]
-           (mcp/list-tools multiple-tools))))
+      (is (= [{:name :greet,
+               :doc  "greet",
+               :args [(tools/map->Parameter {:name :name, :doc "name", :type :string, :required true})
+                      (tools/map->Parameter {:name :birth-year, :doc "birth-year", :type :number, :required true})]}
+              {:name :add
+               :doc  "add"
+               :args [(tools/map->Parameter {:name :a, :doc "a", :type :number, :required true})
+                      (tools/map->Parameter {:name :b, :doc "b", :type :number, :required true})]}
+              {:name :subtract
+               :doc  "subtract"
+               :args [(tools/map->Parameter {:name :x, :doc "x", :type :number, :required true})
+                      (tools/map->Parameter {:name :y, :doc "y", :type :number, :required true})]}]
+             (map #(dissoc % :handler) (vals multiple-tools))))))
 
   (testing "tools can dispatch to external handlers works"
     (let [add-handler         (fn [a b] (+ a b))
-          tools-with-handlers (mcp/tools
-                                (add [^{:type :number} a
-                                      ^{:type :number} b]
+          tools-with-handlers (tools/tools
+                                (add "" [^{:type :number} a
+                                         ^{:type :number} b]
                                      (add-handler a b))
-                                (subtract [^{:type :number} x
-                                           ^{:type :number} y]
-                                          (+ x y)))])
-
-    (is (= [{:name :add, :doc "add", :args [{:name "a", :doc "a", :type :number} {:name "b", :doc "b", :type :number}]}
-            {:name :subtract, :doc "subtract", :args [{:name "x", :doc "x", :type :number} {:name "y", :doc "y", :type :number}]}]
-           (mcp/list-tools tools-with-handlers)))))
+                                (subtract "" [^{:type :number} x
+                                              ^{:type :number} y]
+                                          (- x y)))
+          add-tool (get tools-with-handlers :add)
+          subtract-tool (get tools-with-handlers :subtract)]
+      (is (= 11 (tools/invoke-tool add-tool {:a 5 :b 6})))
+      (is (= 4 (tools/invoke-tool subtract-tool {:x 10 :y 6}))))))
