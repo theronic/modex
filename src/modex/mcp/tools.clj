@@ -108,26 +108,6 @@
                                  :required true}))))]
        (->Tool ~tool-key# ~docstring# arg-info# (fn ~args-vec# ~@fn-body#)))))
 
-(comment
-  (defn add-handler [x y] (+ x))
-  (tool (add [x y] (add-handler x y)))
-  (macroexpand)
-  ((:handler (tool (add [x y] (+ x y)))) 5 6))
-
-;(defmacro tools
-;  "Returns a map of tool name => Tool.
-;
-;  Syntax like defrecord, but supports metadata with {:keys [type doc]} for each argument:
-;
-;  (tools
-;    (add \"Adds two numbers, a & b.\"
-;      [^{:type :number, :doc \"First Number\"} a b] (+ a b))
-;    (subtract [x y] (+ x z)))"
-;  [& tool-defs]
-;  `(let [tools#     (map make-tool ~@tool-defs)
-;         tool-map#  (group-by :name tools#)]
-;     tool-map#))
-
 (defmacro tools
   "Returns a map of tool name => Tool.
 
@@ -152,7 +132,7 @@
                   (add [a b] (+ a b)))))
 
 (defmacro deftools
-  "Just calls tools and binds to a symbol via def. Dubious merit."
+  "Just calls tools and binds to a symbol via def. Of dubious merit."
   [name & tool-defs]
   `(def ~name (tools ~@tool-defs)))
 
