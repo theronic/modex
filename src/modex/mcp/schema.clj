@@ -365,7 +365,7 @@
    [:inputSchema
     [:map
      [:type [:= "object"]]
-     [:properties {:optional true} [:map-of string? map?]]
+     [:properties {:optional true} [:map-of string? map?]] ; need more detail here.
      [:required {:optional true} [:vector string?]]]]])
 
 (def list-tools-request

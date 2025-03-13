@@ -56,14 +56,20 @@ For example, you could make a tool that fetches purchases from your bank's API a
 
 ## What can Modex do?
 
-### You can define a tool:
+### Full Example
+
+There is an MCP server example in [src/modex/mcp/core.clj](src/modex/mcp/core.clj) that defines an MCP server with some basic tools.
+
+Your MCP client (e.g. Claude Desktop) can connect to this server and use exposed tools to provide additional context to your AI models.
+
+### Describe a tool with the `tool` macro:
 ```clojure
 (require '[modex.mcp.tools :as tools])
 
 (def add-tool (tools/tool (add [x y] (+ x y))))
 ```
 
-### Invoke a Tool
+### Invoke a Tool with `invoke-tool`:
 
 Invocation uses a map of arguments like an MCP client would for a `tools/call` request:
 
@@ -120,14 +126,7 @@ The `tools` macro just calls the `tool` macro and puts tools in a map keyed on t
 (server/start-server! my-mcp-server)
 ```
 
-Or put that in your main function.
-
-### Full Example
-
-There is a full example in [src/modex/mcp/core.clj](src/modex/mcp/core.clj) that defines an MCP server with some basic tools.
-
-Your MCP client (e.g. Claude Desktop) can connect to this server and use exposed tools to provide additional context to your AI models.
-
+Or put that in your `-main` function.
 
 ## Data Structures
 

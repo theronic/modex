@@ -111,7 +111,7 @@
           (log/debug call-response)
           (is (= {:jsonrpc schema/json-rpc-version
                   :id      call-id
-                  :result  {:content [{:type "number", :text "6"}]
+                  :result  {:content [{:type "text", :text "6"}]
                             :isError false}}
                  call-response)))
 
