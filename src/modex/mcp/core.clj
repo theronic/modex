@@ -1,7 +1,6 @@
 (ns modex.mcp.core
   (:require [modex.mcp.server :as server]
             [modex.mcp.tools :as tools]
-            [modex.mcp.protocols :as mcp]
             [clojure.core :as cc]
             [taoensso.timbre :as log])
   (:gen-class))

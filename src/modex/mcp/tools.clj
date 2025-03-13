@@ -6,6 +6,7 @@
 
 (defrecord Parameter [name doc type required])
 
+; todo: move to protocols
 (defprotocol ITool
   (required-args [this])
   (input-schema [this]))

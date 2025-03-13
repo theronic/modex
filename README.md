@@ -1,6 +1,8 @@
-# Modex: Model Context Protocol Server & Client in Clojure
+# Modex: Model Context Protocol Server & Client Library in Clojure
 
-Modex (MOdel + ContEXt) is a native Clojure implementation of the [Model Context Protocol](https://modelcontextprotocol.io/) that lets you augment your AI with new tools, resources and prompts.
+Modex (MOdel + ContEXt) is a Clojure library that lets you augment your AI with new tools, resources and prompts.
+
+Modex implements (most of) the [Model Context Protocol](https://modelcontextprotocol.io/) to build MCP Servers & Clients in 'native' Clojure.
 
 Because it's native Clojure, you don't need to deal with Anthropic's [MCP Java SDK](https://github.com/modelcontextprotocol/java-sdk).
 
@@ -40,6 +42,7 @@ Modex implements the `stdio` transport, so no need for a proxy like
 ```
 
 6. Restart Claude Desktop to activate your new MCP Server + tools :)
+7. Tell Claude to "run the inc tool with 123", authorize the tool and you should see an output of 126.
 
 ## What is MCP?
 
@@ -53,15 +56,106 @@ For example, you could make a tool that fetches purchases from your bank's API a
 
 ## What can Modex do?
 
-The Modex skeleton exposes a single tool named `foo` that answers an MCP Client (like your LLM), with:
-
+### You can define a tool:
 ```clojure
-{:content [{:type "text"
-            :text "Hello, AI!" 
-            :isError false}]}
+(require '[modex.mcp.tools :as tools])
+
+(def add-tool (tools/tool (add [x y] (+ x y))))
 ```
 
+### Invoke a Tool
+
+Invocation uses a map of arguments like an MCP client would for a `tools/call` request:
+
+```clojure
+(tools/invoke-tool add-tool {:x 5 :y 6}) ; Modex will map these arguments and call the handler.
+=> 11
+```
+
+### Define a Toolset with `tools` macro
+
+The `tools` macro just calls the `tool` macro and puts tools in a map keyed on tool name (keyword):
+
+```clojure
+(require '[modex.mcp.tools :as tools])
+
+(def my-tools
+  "Define your tools here."
+  (tools/tools
+    (greet
+      "Greets the user. Takes name"
+      [^{:type :text :doc "A person's name."} name]
+      (str "Hello, " name "!"))
+    
+    (add
+      "Adds two numbers."
+      [^{:type :number :doc "First number to add."} a
+       ^{:type :number :doc "Second number to add."} b]
+      (+ a b))
+
+    (subtract
+      "Subtracts two numbers (- a b)"
+      [^{:type :number :doc "First number."} a
+       ^{:type :number :doc "Second number."} b]
+      (- a b))))
+```
+
+### Create an Modex MCP Server w/Tools:
+
+```clojure
+(require '[modex.mcp.server :as server])
+(def my-mcp-server
+  "Here we create a reified instance of AServer. Only tools are presently supported."
+  (server/->server
+    {:name      "Modex MCP Server"
+     :version   "0.0.1"
+     :tools     my-tools
+     :prompts   nil
+     :resources nil}))
+```
+
+### Start your MCP Server
+
+```clojure
+(server/start-server! my-mcp-server)
+```
+
+Or put that in your main function.
+
+### Full Example
+
+There is a full example in [src/modex/mcp/core.clj](src/modex/mcp/core.clj) that defines an MCP server with some basic tools.
+
 Your MCP client (e.g. Claude Desktop) can connect to this server and use exposed tools to provide additional context to your AI models.
+
+
+## Data Structures
+
+### Records
+
+- Tool: `(defrecord Tool [name doc args handler])`
+- Parameter – a Tool Parameter. `(defrecord Parameter [name doc type required])`
+
+### Protocols
+
+Modex exposes an `AServer` protocol and a DSL to define tools protocols that describe MCP servers, which expose tools, resources & prompts.
+
+AServer Protocol:
+```clojure
+(defprotocol AServer
+  (protocol-version [this])
+  (server-name [this])
+  (version [this])
+
+  (capabilities [this])
+  (initialize [this])
+
+  (list-tools [this])
+  (call-tool [this tool-name arg-map])
+
+  (list-resources [this])
+  (list-prompts [this]))
+```
 
 ## Detailed Step-by-Step Instructions
 
@@ -128,8 +222,11 @@ MCP supports two transport types:
 ## Project Status
 
 - [x] Passing tests
-- [ ] Ergonomics (AServer / AClient protocol?)
+- [x] Ergonomics (AServer / AClient protocol?)
+- [x] Tools
 - [ ] nREPL for live changes to running process
+- [ ] Resources
+- [ ] Prompts
 - [ ] SSE support
 
 ## Rationale
