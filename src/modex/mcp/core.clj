@@ -11,7 +11,7 @@
   (tools/tools
     (greet
       "Greets the user. Takes name"
-      [^{:type :text :doc "A person's name."} name]
+      [^{:type :string :doc "A person's name."} name]
       (str "Hello from Modex, " name "!"))
 
     (inc
