@@ -106,7 +106,7 @@ The `tools` macro just calls the `tool` macro and puts tools in a map keyed on t
       (- a b))))
 ```
 
-### Create an Modex MCP Server w/Tools:
+### Create a Modex MCP Server + tools:
 
 ```clojure
 (require '[modex.mcp.server :as server])
