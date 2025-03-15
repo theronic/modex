@@ -28,20 +28,21 @@
 ; (SDKs and applications can define their own error codes above -32000)
 ; Todo: move to schema.
 
-(defn format-tool-result
+(defn format-tool-results
   "Format a tool result into the expected JSON-RPC response format"
-  [result]
+  [results]
   (let [content-type "text"] ; supported content types are under schemacall-tool-result
         ;(cond
         ;  (number? result) "number"            ; keyword?
         ;  :else "text")]
-    {:content [{:type content-type
-                :text (str result)}]
+    {:content (vec (for [result results]
+                     {:type content-type                    ; todo result types. just text or number basically.
+                      :text (str result)}))
      :isError false}))
 
-(defn format-tool-error
-  [result]
-  (-> (format-tool-result result)
+(defn format-tool-errors
+  [errors]
+  (-> (format-tool-results errors)
       (assoc :isError true)))
 
 (defn ->server
@@ -53,6 +54,7 @@
     :or   {protocol-version schema/latest-protocol-version}}]
 
   (reify AServer
+    ; todo: add handle-message or handle-request
     (protocol-version [_this] protocol-version)
 
     (server-name [_this] name)
@@ -89,15 +91,18 @@
         (if-not tool
           ; is this exception handled properly by caller?
           ; todo better exceptions here to handle missing stuff in router.
-          (throw (ex-info (str "Unknown tool: " tool-name)
-                          ; todo: we have error codes for this (method not found)
-                          {:tool-name tool-name
-                           :available (keys tools)}))
+          [nil [{:error :missing-tool
+                 :tool-name tool-name
+                 :available-tools (keys tools)}]]
+          ;(throw (ex-info (str "Unknown tool: " tool-name)
+          ;                ; todo: we have error codes for this (method not found)
+          ;                [{:tool-name tool-name
+          ;                  :available (keys tools)}]))
           (try
             (tools/invoke-tool tool arg-map)
             (catch Exception ex
               ; todo better exception handling.
-              (prn 'call-tool-ex (pr-str ex))
+              ;(prn 'call-tool-ex (pr-str ex))
               (throw ex))))))))
 
 (defn read-json-rpc-message
@@ -178,11 +183,17 @@
   (let [{tool-name :name
          arg-map   :arguments} params]
     (try
-      (->> (mcp/call-tool server tool-name arg-map)
-           (format-tool-result)
-           (json-rpc/result id))
-      (catch Exception ex
-        (json-rpc/error id (format-tool-error (ex-data ex)))))))
+      (let [[results ?errors] (mcp/call-tool server tool-name arg-map)]
+        (if ?errors
+          (do
+            (log/debug "Tool Error:" ?errors)
+            (->> (format-tool-errors ?errors)                 ; note that tool errors are reported via a normal JSON-RPC result, but with isError=true.
+                 (json-rpc/result id)))
+          (->> (format-tool-results results)
+               (json-rpc/result id))))
+      (catch Exception ex ; this is unexpected now.
+        ; note that tool errors are reported via a normal JSON-RPC result, but with isError=true.
+        (json-rpc/result id (format-tool-errors (ex-data ex)))))))
 
 ;; Main request dispatcher
 (defn handle-request
@@ -237,7 +248,7 @@
   "Returns a JSON-RPC message."
   [server message]
   (try
-    (log/debug "Handling message: " (pr-str message))
+    (log/debug "Handling message: " message)
     (cond
       ; Log errors:
       (:error message)
@@ -255,7 +266,7 @@
 
       ;; Unknown message type (we just log it)
       :else
-      (do (log/debug "Unknown message type:" message)
+      (do (log/warn "Unknown message type:" message)
           nil))
     (catch Exception e
       ; this needs to be handled by router.

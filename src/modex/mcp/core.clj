@@ -12,19 +12,25 @@
     (greet
       "Greets the user. Takes name"
       [^{:type :text :doc "A person's name."} name]
-      (str "Hello from Modex, " name "!"))
+      [(str "Hello from Modex, " name "!")])
 
     (inc
       "Increments a number."
       [^{:type :number :doc "x is a number to increment."} x]
-      (cc/inc x))
+      [(cc/inc x)])
+
+    (range
+      "Calls (range n) in Clojure and returns a seq." ; demonstrates seq returns
+      [^{:type :number :doc "(range n)"} n]
+      (cc/range n))
 
     (add "Adds two numbers."
          [^{:type :number, :doc "1st Number"} a
           ^{:type :number, :doc "2nd number"} b]
-         (+ a b))))
+         [(+ a b)])))
 
 (comment
+  (tools/invoke-tool (get my-tools :range) {:n 5})
   (tools/invoke-tool (get my-tools :greet) {:name "Petrus"})
   (tools/invoke-tool (get my-tools :add) {:a 10 :b 6}))
 

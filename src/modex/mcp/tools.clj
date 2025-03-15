@@ -58,24 +58,31 @@
 
 (defn invoke-tool
   "Given a Tool & a map of arguments, arranges arguments and applies to handler in same thread.
+  Returns a vector with [data ?error].
   ; TODO: check missing required vs. optional args.
   ; TODO: Malli schema validation.
   "
+  ; ok big todo is to return correct error for missing parameters.
   [^Tool {:as _tool :keys [handler args]}, arg-map]
   ;(log/debug "arg-map:" arg-map)
   (let [required-args    (filter :required args)
         required-key-set (set (map :name required-args))
         ;_ (log/debug "required keys:" required-key-set)
         missing-args     (missing-elements required-key-set (keys arg-map))
-        _                (when (seq missing-args) (log/debug "missing:" missing-args))
-        ; todo: switch to Malli schemas for required.
-        _                (assert (empty? missing-args)
-                                 (str "Missing tool parameters: " (string/join "," missing-args)))
-        arg-vec (->> (map :name args)
-                     (map arg-map))]
-    ;(log/debug "arg-vec:" arg-vec)
-    ;(log/debug "handler" handler)
-    (apply handler arg-vec)))
+        _                (when (seq missing-args) (log/debug "missing:" missing-args))]
+    ; todo: switch to Malli schemas for required.
+    (if (seq missing-args)
+      [nil [{:missing-tool-parameters missing-args}]]
+      (let [arg-vec (->> (map :name args)
+                         (map arg-map))
+            results (apply handler arg-vec)]
+        [results nil]))))
+        ;(comment
+        ;  _ (assert (empty? missing-args)
+        ;            (str "Missing tool parameters: " (string/join "," missing-args)))))
+        ;(log/debug "arg-vec:" arg-vec)
+        ;(log/debug "handler" handler)
+
 
 (comment
   (let [tool (->Tool :foo "test"

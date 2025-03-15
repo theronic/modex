@@ -15,10 +15,20 @@
   (tools/tools
     (foo "Greets a person by name."
          [^{:type :text :doc "A person's name."} name]
-         (str "Hello, " name "!"))
+         [(str "Hello, " name "!")])
     (inc "A simple tool that returns a greeting"
          [^{:type :number :doc "A number to increment."} x]
-         (cc/inc x))))
+         [(cc/inc x)])))
+
+(defn make-request [id method params]
+  (let [request (cond-> {:jsonrpc "2.0"
+                         :id      id
+                         :method  method}
+                  params (assoc :params params))]
+    (str (json/write-value-as-string request json/keyword-keys-object-mapper) "\n")))
+
+(comment
+  (make-request 1 "tools/call" {:name "foo" :arguments {:name "AI"}}))
 
 (deftest test-server-client-integration
   (testing "Server responds correctly to requests over piped streams"
@@ -39,10 +49,8 @@
           ;; Create a mini client for testing
           request-id         (atom 0)
           send-test-request  (fn [method & [params]]
-                               (let [id      (swap! request-id inc)
-                                     request {:jsonrpc "2.0" :id id :method method}
-                                     request (if params (assoc request :params params) request)
-                                     msg     (str (json/write-value-as-string request json/keyword-keys-object-mapper) "\n")]
+                               (let [id (swap! request-id inc)
+                                     msg (make-request id method params)]
                                  (log/debug 'client-test-send msg)
                                  (.write client-writer msg)
                                  (.flush client-writer)
@@ -77,18 +85,18 @@
         ;; Test 2: List tools
         (let [list-tools-id       (send-test-request "tools/list")
               list-tools-response (read-test-response)]
-          (prn list-tools-response)
+          ;(prn list-tools-response)
           (is (= {:id      list-tools-id
                   :jsonrpc "2.0"
                   :result  {:tools [{:name        "foo"
                                      :description "Greets a person by name."
-                                     :inputSchema {:properties {:name {:doc "A person's name."
+                                     :inputSchema {:properties {:name {:doc  "A person's name."
                                                                        :type "text"}}
                                                    :type       "object"
                                                    :required   ["name"]}}
                                     {:name        "inc"
                                      :description "A simple tool that returns a greeting"
-                                     :inputSchema {:properties {:x {:doc "A number to increment."
+                                     :inputSchema {:properties {:x {:doc  "A number to increment."
                                                                     :type "number"}}
                                                    :type       "object"
                                                    :required   ["x"]}}]}}
@@ -97,6 +105,7 @@
         ;; Test 3: Call the foo tool
         ;; ; actually arrives from client:
         ;; {:jsonrpc "2.0", :method "tools/call", :params {:arguments {:x 5}, :name "inc"}, :id 6}
+
         (let [call-id       (send-test-request "tools/call" {:name "foo" :arguments {:name "AI"}})
               call-response (read-test-response)]
           (log/debug call-response)
@@ -114,6 +123,16 @@
                   :result  {:content [{:type "text", :text "6"}]
                             :isError false}}
                  call-response)))
+
+        (testing "missing arguments"
+          (let [call-id       (send-test-request "tools/call" {:name "inc" :arguments {:y 5}})
+                call-response (read-test-response)]
+            (log/debug call-response)
+            (is (= {:jsonrpc schema/json-rpc-version
+                    :id      call-id
+                    :result  {:isError true
+                              :content [{:type "text", :text "{:missing-tool-parameters (:x)}"}]}}
+                   call-response))))
 
         (finally
           (testing "order matters here"
