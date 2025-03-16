@@ -1,6 +1,7 @@
 (ns modex.mcp.server-test
   (:require [clojure.test :refer :all]
             [clojure.core :as cc]
+            [jsonista.core :as json]
             [modex.mcp.protocols :as mcp]
             [modex.mcp.schema :as schema]
             [modex.mcp.server :as server]
@@ -19,6 +20,42 @@
          [^{:type :text :doc "Anything"} x]
          (throw (ex-info "Tool throws intentionally" [{:error "Throws intentionally"}])))))
 
+(defn make-request [id method params]
+  (let [request (cond-> {:jsonrpc "2.0"
+                         :id      id
+                         :method  method}
+                  params (assoc :params params))]
+    (str (json/write-value-as-string request json/keyword-keys-object-mapper) "\n")))
+
+;(def fixture-initialize
+;  (make-request 1 "initialize"))
+
+(deftest mcp-server-delayed-init-tests
+  ; probably does not belong here.
+  (testing "server sends notification/initialized when on-init callback is called"
+    (let [!rx    (atom [])
+          !tx    (atom [])
+          !inited (atom false)
+          server (server/->server {:name       "Test Server"
+                                   :version    "1.0"
+                                   :on-receive (fn [msg] (swap! !rx conj msg))
+                                   :on-send    (fn [msg] (swap! !tx conj msg))
+                                   :on-init    #(do (prn 'init-called) true) ; sample delay
+                                   :tools      fixture-basic-tools})]
+      ;(mcp/initialize server)
+      (server/handle-message server
+                             {:id 1
+                              :method "initialize"
+                              :params {}}
+                             (fn [msg]
+                               (prn 'send-msg msg)
+                               ; todo check contents
+                               (reset! !inited true)))
+      ; ok now to handle message
+      (Thread/sleep 100) ; todo better concurrency on send
+
+      (is (true? @!inited)))))
+
 (deftest mcp-server-protocol-tests
   (let [server (server/->server {:name "Test Server"
                                  :version "1.0"
@@ -35,21 +72,28 @@
                :description "Greets a person by name.",
                :inputSchema {:type       "object"
                              :required   [:name]
-                             :properties {:name {:type :text, :doc "A person's name."}}}}
+                             :properties {:name {:type :text
+                                                 :doc "A person's name."
+                                                 :required true}}}}
               {:name        :inc,
                :description "A simple tool that returns a greeting",
                :inputSchema {:type       "object"
                              :required   [:x]
-                             :properties {:x {:type :number, :doc "A number to increment."}}}}
+                             :properties {:x {:type :number
+                                              :doc "A number to increment."
+                                              :required true}}}}
               {:name        :broken-tool,
                :description "A tool that throws for error tests.",
                :inputSchema {:type       "object"
                              :required   [:x]
-                             :properties {:x {:type :text, :doc "Anything"}}}}]
+                             :properties {:x {:type :text
+                                              :doc "Anything"
+                                              :required true}}}}]
              (mcp/list-tools server))))
 
-    (testing "we can invoke tools via server"
-      (is (= [["Hello, Petrus!"] nil] (mcp/call-tool server :foo {:name "Petrus"}))))
+    (testing "we can invoke tools via server. call-tool returns [?result ?error]."
+      (is (= [["Hello, Petrus!"] nil] (mcp/call-tool server :foo {:name "Petrus"})))
+      (is (= [nil [{:missing-tool-parameters '(:name)}]] (mcp/call-tool server :foo {:bad-arg "Petrus"}))))
 
     (testing "handle-tools-call throws protocol-level error for unknown tools"
       ; this test is at wrong level
@@ -98,46 +142,38 @@
 
 (deftest test-handle-initialize
   (testing "handle-initialize returns two messages: capabilities + init notifs."
-    (let [init-request   {:id     1
-                          :method "initialize"
-                          :params {:protocolVersion schema/latest-protocol-version
-                                   :capabilities    {}
-                                   :clientInfo      {:name "Test Client" :version "1.0.0"}}}
-          test-tools     (mcp/create-toolset ; why are we testing this?
-                           {:inc {:name :inc
-                                  :fn   (fn [x] (cc/inc x))
-                                  :doc  "Increments a number"
-                                  :args [{:name "x" :doc "x" :type :number}]}
-                            :foo {:name :foo
-                                  :fn   (fn [] (str "Hello, World!"))
-                                  :doc  "Returns a greeting"
-                                  :args []}})
-          mcp-server     (server/->server {:tools test-tools})
-          init-responses (server/handle-request mcp-server init-request)]
-      (is (= 2 (count init-responses)))
-      (is (= schema/latest-protocol-version (get-in (first init-responses) [:result :protocolVersion])))
-      (is (= "notifications/initialized" (:method (second init-responses)))))))
+    (let [init-request         {:id     1
+                                :method "initialize"
+                                :params {:protocolVersion schema/latest-protocol-version
+                                         :capabilities    {}
+                                         :clientInfo      {:name "Test Client" :version "1.0.0"}}}
+          !notifications       (atom [])
+          notification-handler (fn [msg] (swap! !notifications conj msg))
+          test-tools           (mcp/create-toolset ; why are we testing this?
+                                 {:inc {:name :inc
+                                        :fn   (fn [x] (cc/inc x))
+                                        :doc  "Increments a number"
+                                        :args [{:name "x" :doc "x" :type :number}]}
+                                  :foo {:name :foo
+                                        :fn   (fn [] (str "Hello, World!"))
+                                        :doc  "Returns a greeting"
+                                        :args []}})
+          mcp-server           (server/->server {:tools test-tools})
+          init-response        (server/handle-request mcp-server init-request notification-handler)]
+      (prn 'init-response init-response)
+      (is (= {:jsonrpc "2.0"
+              :id      1
+              :result  {:protocolVersion "2024-11-05"
+                        :capabilities    {:tools     {:listChanged true}
+                                          :resources {:listChanged false}
+                                          :prompts   {:listChanged false}}
+                        :serverInfo      {:name nil, :version nil}}}
+             init-response))
 
-;(deftest test-handle-tools-list
-;  (testing "handle-tools-list returns correct response"
-;    (let [req-tool-list      {:id     2
-;                              :method "tools/list"}
-;          test-tools         (mcp/create-toolset
-;                               {:inc {:name :inc
-;                                      :fn   (fn [x] (cc/inc x))
-;                                      :doc  "Increments a number"
-;                                      :args [{:name "x" :doc "x" :type :number}]}
-;                                :foo {:name :foo
-;                                      :fn   (fn [] (str "Hello, World!"))
-;                                      :doc  "Returns a greeting"
-;                                      :args []}})
-;          mcp-server         (server/->server {:tools test-tools})
-;          tool-list-response (server/handle-request mcp-server req-tool-list)]
-;      (is (= {:jsonrpc "2.0"
-;              :id 2
-;              :result {:tools [{:name "inc", :description "Increments a number", :inputSchema {:type "object"}, :properties {:x {:type "number"}}, :required ["x"]}
-;                               {:name "foo", :description "Returns a greeting", :inputSchema {:type "object"}, :properties {}, :required ()}]}}
-;             tool-list-response)))))
+      ;"notifications/initialized"
+      ;(Thread/sleep 100) ; do we need to sleep here because future?
+      (is (= [{:jsonrpc "2.0"
+               :method  "notifications/initialized"}] @!notifications)))))
 
 (comment
   (ex-data

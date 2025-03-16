@@ -13,7 +13,7 @@
 
 (defn tool-arg->property
   [^Parameter tool-arg]
-  (select-keys tool-arg [:type :doc]))
+  (select-keys tool-arg [:type :doc :required]))
 
 (defn tool-args->input-schema [args]
   (into {}
@@ -65,7 +65,7 @@
   ; ok big todo is to return correct error for missing parameters.
   [^Tool {:as _tool :keys [handler args]}, arg-map]
   ;(log/debug "arg-map:" arg-map)
-  (let [required-args    (filter :required args)
+  (let [required-args    (filter #(true? (:required %)) args)
         required-key-set (set (map :name required-args))
         ;_ (log/debug "required keys:" required-key-set)
         missing-args     (missing-elements required-key-set (keys arg-map))
@@ -112,7 +112,7 @@
                                 {:name     (keyword arg#)
                                  :doc      (or (:doc m#) (str arg#))
                                  :type     (or (:type m#) :text)
-                                 :required true}))))]
+                                 :required ((fnil :required true) m#)}))))]
        (->Tool ~tool-key# ~docstring# arg-info# (fn ~args-vec# ~@fn-body#)))))
 
 (defmacro tools

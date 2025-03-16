@@ -1,15 +1,12 @@
 (ns modex.mcp.server
   "Handles JSON RPC interface and dispatches to an MCP server "
-  (:require [jsonista.core :as json]
+  (:require [taoensso.timbre :as log]
+            [jsonista.core :as json]
+            [modex.mcp.protocols :as mcp :refer [AServer]]
             [modex.mcp.schema :as schema]
-            [taoensso.timbre :as log]
-            [clojure.core :as cc]
             [modex.mcp.json-rpc :as json-rpc]
-            [modex.mcp.tools :as tools]
-            [modex.mcp.protocols :as mcp :refer [AServer]])
+            [modex.mcp.tools :as tools])
   (:gen-class))                                             ; gen-class should move to core with main.
-
-(def json-rpc-version "2.0")
 
 ;; Configure Timbre to output to stderr so it shows up in MCP Server
 (log/set-config!
@@ -24,17 +21,11 @@
                     (binding [*out* *err*]                  ;; Redirect to stderr
                       (println formatted-output))))}}})
 
-; MCP Standard Error Codes:
-; (SDKs and applications can define their own error codes above -32000)
-; Todo: move to schema.
-
 (defn format-tool-results
-  "Format a tool result into the expected JSON-RPC response format"
+  "Format a tool result into the expected JSON-RPC text response format.
+  Everything is text right now, but could be (TextContent | ImageContent | EmbeddedResource)."
   [results]
-  (let [content-type "text"] ; supported content types are under schemacall-tool-result
-        ;(cond
-        ;  (number? result) "number"            ; keyword?
-        ;  :else "text")]
+  (let [content-type "text"]                                ; supported content types are under schemacall-tool-result
     {:content (vec (for [result results]
                      {:type content-type                    ; todo result types. just text or number basically.
                       :text (str result)}))
@@ -46,13 +37,16 @@
       (assoc :isError true)))
 
 (defn ->server
-  "Given tools, resources and prompt, returns a reified instance of AServer, which describes an MCP Server.
-  JSON-RPC is handled by caller. Good idea?"
+  "Returns a reified instance of AServer (an MCP Server),
+  given tools, resources and prompts. Only tools are supported at this time."
   [{:keys [protocol-version
            name version
-           tools resources prompts]
-    :or   {protocol-version schema/latest-protocol-version}}]
-
+           tools resources prompts
+           initialize
+           on-receive
+           on-send]
+    :or   {protocol-version schema/latest-protocol-version
+           initialize identity}}]
   (reify AServer
     ; todo: add handle-message or handle-request
     (protocol-version [_this] protocol-version)
@@ -65,34 +59,40 @@
        :resources {:listChanged (boolean (seq resources))}
        :prompts   {:listChanged (boolean (seq prompts))}})
 
+    ; For debugging:
+    (on-receive [_this msg]
+      (when on-receive (on-receive msg)))
 
-    (initialize [this]
-      ; I don't like the self-calling here. Feels dangerous.
-      {:protocolVersion protocol-version
-       :capabilities    (mcp/capabilities this)             ; calls above.
-       :serverInfo      {:name    (mcp/server-name this)
-                         :version (mcp/version this)}})
+    (on-send [_this msg]
+      (when on-send (on-send msg)))
+
+    ; this is triggered by MCP client asking for init.
+    (initialize [_this]
+      (if initialize
+        (initialize)                                        ; this can block.
+        true))
 
     (list-tools [_this]
-      (->> (vals tools) ; tools is a map.
+      (->> (vals tools)                                     ; tools is a map.
            (mapv tools/tool->json-schema)))
 
-    (list-resources [this] [])                              ; not impl.
+    (list-resources [_this] [])                             ; not impl.
     (list-prompts [_this] [])                               ; not impl.
 
     (call-tool
-      ;"Maps arguments to tool handler arity, validates optional schema and invokes fool fn with args."
+      ; returns [?result ?error]. Considering switching to maps, even for tool responses.
+      ; This maps the argument map to the tool handler's expected arity, should validate MAlli schema and invokes the tool.
       [_this tool-name arg-map]
       (log/debug "call-tool:" tool-name arg-map)
 
-      (let [tool-key (keyword tool-name)                    ;; hoist?
+      (let [tool-key (keyword tool-name)                    ;; hoist to caller?
             tool     (get tools tool-key)]
 
         (if-not tool
           ; is this exception handled properly by caller?
           ; todo better exceptions here to handle missing stuff in router.
-          [nil [{:error :missing-tool
-                 :tool-name tool-name
+          [nil [{:error           :missing-tool
+                 :tool-name       tool-name
                  :available-tools (keys tools)}]]
           ;(throw (ex-info (str "Unknown tool: " tool-name)
           ;                ; todo: we have error codes for this (method not found)
@@ -123,57 +123,18 @@
                :message "Parse error"}})))
 
 ; can move to JSON-RPC-specific namespace.
-(defn write-json-rpc-message [writer message]
+(defn write-json-rpc-message
+  "Concurrency-safe JSON writes. Locks writer during .write & .flush."
+  [writer message]
   (try
     (let [json-str (json/write-value-as-string message json/keyword-keys-object-mapper)]
       (log/debug "Server Sending message:" json-str)
-      (.write writer (str json-str "\n"))
-      (.flush writer))
+      (locking writer
+        (.write writer (str json-str "\n"))
+        (.flush writer)))
     (catch Exception e
       (log/debug "Error writing message:" (.getMessage e))
       (.printStackTrace e (java.io.PrintWriter. *err*)))))
-
-;; Request handlers
-;(defn handle-initialize [server {:keys [id params]}]
-;  (log/debug "Handling initialize request with id:" id)
-;  [(json-rpc/result id {:protocolVersion (:protocolVersion params)
-;                        :capabilities    server-capabilities
-;                        :serverInfo      server-info})
-;   (json-rpc/method "notifications/initialized")])
-
-
-;(defn handle-list-tools [server {:keys [id]}]
-;  (log/debug "Handling tools/list request with id:" id)
-;  (let [tools (:tools server)]
-;    ; move to server namespace?
-;    (json-rpc/result id {:tools (map tools/tool->json-schema tools)})))
-
-(comment)
-
-;(defn handle-list-prompts [server {:keys [id]}]
-;  (log/debug "Handling prompts/list request with id:" id)
-;  (json-rpc/result id {:prompts (mcp/list-prompts server)}))
-
-;(defn handle-list-resources [server {:keys [id]}]
-;  (log/debug "Handling resources/list request with id:" id)
-;  (json-rpc/result id {:resources (mcp/list-resources server)}))
-
-;(defn handle-call-tool [server {:as request, :keys [id params]}]
-;  (log/debug "Handling tools/call request with id:" id "for tool:" (pr-str (:name params)))
-;  (let [{tool-name :name arguments :arguments parameters :parameters} params
-;        ;; MCP spec has 'arguments' but our test is using 'parameters' - handle both
-;        arg-map (or arguments parameters {})]
-;    (try
-;      (let [result (mcp/call-tool server tool-name arg-map)]
-;        (json-rpc/result id result))
-;      (catch Exception e
-;        (log/error "Error calling tool" tool-name ":" (.getMessage e))
-;        (json-rpc/error id {:code    schema/error-invalid-params
-;                            :message (.getMessage e)})))))
-
-;(defn handle-ping [_mcp-server {:keys [id]}]
-;  (log/debug "Handling ping request with id:" id)
-;  (json-rpc/result id {}))
 
 (defn handle-tool-call-request
   "Handles tools/call request and invokes tool. Returns JSON-RPC result or error.
@@ -187,20 +148,20 @@
         (if ?errors
           (do
             (log/debug "Tool Error:" ?errors)
-            (->> (format-tool-errors ?errors)                 ; note that tool errors are reported via a normal JSON-RPC result, but with isError=true.
+            (->> (format-tool-errors ?errors)               ; note that tool errors are reported via a normal JSON-RPC result, but with isError = true.
                  (json-rpc/result id)))
           (->> (format-tool-results results)
                (json-rpc/result id))))
-      (catch Exception ex ; this is unexpected now.
-        ; note that tool errors are reported via a normal JSON-RPC result, but with isError=true.
+      (catch Exception ex                                   ; this is unexpected now.
+        ; note that tool errors are reported via a normal JSON-RPC result, but with isError = true.
         (json-rpc/result id (format-tool-errors (ex-data ex)))))))
 
 ;; Main request dispatcher
 (defn handle-request
   "Just a router for AServer.
   Each dispatch may return aa map (single message), or a collection of sequential messages."
-  [mcp-server, {:as request :keys [id method params]}]
-  ; todo move out JSON RPC stuff to wire format.
+  [mcp-server, {:as request :keys [id method params]} & [send-notification]]
+  ; todo: move out JSON-RPC-specific results to a format handler.
   ;(log/debug "Dispatching request method:" method)
   (try
     (case method
@@ -211,9 +172,18 @@
 
       "tools/call" (handle-tool-call-request mcp-server request) ; todo: run invoke in future / thread.
 
-      "initialize" [(json-rpc/result id (mcp/initialize mcp-server))
-                    ; not a fan of this method business.
-                    (json-rpc/method "notifications/initialized")]
+      "initialize" (let [init-response {:protocolVersion (mcp/protocol-version mcp-server)
+                                        :capabilities    (mcp/capabilities mcp-server) ; calls above.
+                                        :serverInfo      {:name    (mcp/server-name mcp-server)
+                                                          :version (mcp/version mcp-server)}}]
+                     ; we call on-init (better name?) and send ready notification (todo: bus).
+                     (future
+                       (mcp/initialize mcp-server)          ; should this be a delay?
+                       ; this will move to an async bus.
+                       ; hmm, if initialize is fast, this arrives before the init result.
+                       (send-notification (json-rpc/method "notifications/initialized"))) ; too coupled.
+
+                     (json-rpc/result id init-response))
 
       ;; Enumeration methods:
       "tools/list" (json-rpc/result id {:tools (mcp/list-tools mcp-server)})
@@ -232,21 +202,21 @@
       (json-rpc/error id {:code    schema/error-internal
                           :message (str "Internal error: " (.getMessage e))}))))
 
-;; Check if a message is a notification (has method but no id)
-(defn notification? [{:as _message :keys [method id]}]
+(defn notification?
+  "Notifications have method, but no id."
+  [{:as _message :keys [method id]}]
   (and method (not id)))
 
 (defn handle-notification
   "We don't need to do anything special for notifications right now.
   Just log them and continue."
-  [notification]
-  (let [method (:method notification)]
-    (log/debug "Received notification:" method)
-    nil))
+  [{:as _notification :keys [method]}]
+  (log/debug "Received notification:" method)
+  nil)
 
 (defn handle-message
   "Returns a JSON-RPC message."
-  [server message]
+  [server message send-notification]                        ; not loving send-message here.
   (try
     (log/debug "Handling message: " message)
     (cond
@@ -256,7 +226,7 @@
 
       ;; Handle requests (have method & id)
       (and (:method message) (:id message))
-      (handle-request server message)
+      (handle-request server message send-notification)
 
       ; Notification (has method, no id)
       (notification? message)
@@ -284,22 +254,22 @@
   ([server reader writer]
    (log/debug "Starting Modex MCP server...")
    (try
-     (loop []
-       (log/debug "Waiting for request...")
-       (let [message (read-json-rpc-message reader)]
-         (if-not message
-           (do ; we exit here.
-             (log/debug "Reader returned nil, client probably disconnected"))
+     (let [send-notification-handler (fn [message] (write-json-rpc-message writer message))]
+       (loop []
+         (log/debug "Waiting for request...")
+         (let [message (read-json-rpc-message reader)]
+           (mcp/on-receive server message)                  ; notify caller on rx (mainly for testing)
 
-           (let [?responses (handle-message server message)]
-             (when ?responses
-               (log/debug "Responding with messages: " (pr-str ?responses)))
-             (if (map? ?responses)                          ; map = single message
-               (write-json-rpc-message writer ?responses)
-               (if (seq ?responses)                         ; if seq/coll, send multiple messages sequentially. Todo: make async.
-                 (doseq [response ?responses]
-                   (write-json-rpc-message writer response))))
-             (recur)))))
+           (if-not message
+             (do                                            ; we exit here.
+               (log/debug "Reader returned nil, client probably disconnected"))
+
+             (let [?response (handle-message server message send-notification-handler)]
+               (when ?response
+                 (log/debug "Responding with messages: " (pr-str ?response))
+                 (mcp/on-send server ?response)             ; tracking for send events.
+                 (write-json-rpc-message writer ?response))
+               (recur))))))
      (log/debug "Exiting.")
      (catch Exception e
        (log/debug "Critical error in server:" (.getMessage e))

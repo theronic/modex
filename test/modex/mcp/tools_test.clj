@@ -4,19 +4,14 @@
             [jsonista.core :as json]))
 
 (deftest tools-tests
-
   (testing "Tool argument types :text are correctly coerced to JSON"
+    (json/write-value-as-string [{:x {:y [:z "hi"]}} :a :b] json/keyword-keys-object-mapper)
     (let [tool (tools/map->Tool
                  {:name :greet
                   :doc "Greeter"
                   :args [(tools/->Parameter :name "A person's name" :text true)]})]
-      ;(is (= nil (tools/input-schema tool)))
-      ;(is (= nil (tools/tool->json-schema tool)))
-      ;(is (= nil (json/write-value-as-string (tools/tool->json-schema tool) json/keyword-keys-object-mapper)))
       (is (= "{\"name\":\"greet\",\"description\":\"Greeter\",\"inputSchema\":{\"type\":\"object\",\"required\":[\"name\"],\"properties\":{\"name\":{\"type\":\"text\",\"doc\":\"A person's name\"}}}}"
              (json/write-value-as-string (tools/tool->json-schema tool) json/keyword-keys-object-mapper)))))
-    ;(is (= {:type :text :doc "A person's name"}) (tools/tool-arg->property (tools/->Parameter :name "A person's name" :text true)))
-    ;(is (= {:type :text :doc "A person's name"}) (tools/tool-args->input-schema [(tools/->Parameter :name "A person's name" :text true)])))
 
   (testing "we can make a tool"
     (let [adder (tools/tool (add [x y] (+ x y)))]
