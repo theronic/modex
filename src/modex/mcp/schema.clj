@@ -188,6 +188,7 @@
      [:priority {:optional true} [:and number? [:>= 0] [:<= 1]]]]]])
 
 ;;; Content Types
+;;; note: tool string parameters use 'string', not 'text'. todo schema checks.
 (def text-content
   [:merge
    annotated

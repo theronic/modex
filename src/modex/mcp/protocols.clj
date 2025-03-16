@@ -12,6 +12,11 @@
   (server-name [this])
   (version [this])
 
+  (on-receive [this msg] "For testing receive.")
+  (on-send [this msg] "For testing notifications.")
+
+  (send-notification [this notification])
+
   (capabilities [this])
   (initialize [this])
 

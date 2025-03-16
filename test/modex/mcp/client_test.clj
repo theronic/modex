@@ -15,10 +15,24 @@
   (tools/tools
     (foo "Greets a person by name."
          [^{:type :text :doc "A person's name."} name]
-         (str "Hello, " name "!"))
+         [(str "Hello, " name "!")])
     (inc "A simple tool that returns a greeting"
          [^{:type :number :doc "A number to increment."} x]
-         (cc/inc x))))
+         [(cc/inc x)])))
+
+(defn make-request [id method params]
+  (let [request (cond-> {:jsonrpc "2.0"
+                         :id      id
+                         :method  method}
+                  params (assoc :params params))]
+    (str (json/write-value-as-string request json/keyword-keys-object-mapper) "\n")))
+
+(comment
+  (make-request 1 "tools/call" {:name "foo" :arguments {:name "AI"}}))
+
+(make-request 1 "initialize" {:protocolVersion schema/latest-protocol-version
+                              :capabilities    {:sampling {}}
+                              :clientInfo      {:name "Test Client" :version "1.0.0"}})
 
 (deftest test-server-client-integration
   (testing "Server responds correctly to requests over piped streams"
@@ -32,20 +46,21 @@
           client-reader      (io/reader client-in)
           client-writer      (io/writer client-to-server)
 
+          mcp-server         (server/->server {:initialize (fn [] (Thread/sleep 50))
+                                               :tools      tool-fixtures})
           ;; Start the server in a separate thread
-          mcp-server         (server/->server {:tools tool-fixtures})
           stdio-server       (future (server/start-server! mcp-server server-reader server-writer))
 
           ;; Create a mini client for testing
           request-id         (atom 0)
           send-test-request  (fn [method & [params]]
-                               (let [id      (swap! request-id inc)
-                                     request {:jsonrpc "2.0" :id id :method method}
-                                     request (if params (assoc request :params params) request)
-                                     msg     (str (json/write-value-as-string request json/keyword-keys-object-mapper) "\n")]
+                               ; can this use our concurrency-safe writer?
+                               (let [id  (swap! request-id inc)
+                                     msg (make-request id method params)]
                                  (log/debug 'client-test-send msg)
-                                 (.write client-writer msg)
-                                 (.flush client-writer)
+                                 (locking client-writer
+                                   (.write client-writer msg)
+                                   (.flush client-writer))
                                  id))
 
           read-test-response (fn []
@@ -58,37 +73,44 @@
 
       (try
         ;; Test 1: Initialize
-        (let [init-id           (send-test-request "initialize"
-                                                   {:protocolVersion schema/latest-protocol-version
-                                                    :capabilities    {:sampling {}}
-                                                    :clientInfo      {:name "Test Client" :version "1.0.0"}})
-              init-response     (read-test-response)
-              _                 (log/debug 'init-response init-response)
-              init-notification (read-test-response)
-              _                 (log/debug 'init-notification init-notification)] ;; Capture the initialized notification
+        (let [init-id       (send-test-request "initialize"
+                                               {:protocolVersion schema/latest-protocol-version
+                                                :capabilities    {:sampling {}}
+                                                :clientInfo      {:name "Test Client" :version "1.0.0"}})
+              init-response (read-test-response)
+              _             (log/debug 'init-response init-response)]
 
-          (is (= init-id (:id init-response)))
-          (is (= "2024-11-05" (get-in init-response [:result :protocolVersion])))
-          (is (map? (get-in init-response [:result :capabilities])))
-          (is (map? (get-in init-response [:result :serverInfo])))
+          (is (= {:id      init-id
+                  :jsonrpc "2.0"
+                  :result  {:capabilities    {:prompts   {:listChanged false}
+                                              :resources {:listChanged false}
+                                              :tools     {:listChanged true}}
+                            :protocolVersion "2024-11-05"
+                            :serverInfo      {:name    nil
+                                              :version nil}}} init-response))
 
-          (is (= "notifications/initialized" (:method init-notification))))
+          (testing "initialize response should be followed by notifications/initalized")
+          (let [init-notification (read-test-response)]
+            (prn 'init-notif init-notification)
+            (is (= "notifications/initialized" (:method init-notification)))))
 
         ;; Test 2: List tools
         (let [list-tools-id       (send-test-request "tools/list")
               list-tools-response (read-test-response)]
-          (prn list-tools-response)
+          ;(prn list-tools-response)
           (is (= {:id      list-tools-id
                   :jsonrpc "2.0"
                   :result  {:tools [{:name        "foo"
                                      :description "Greets a person by name."
-                                     :inputSchema {:properties {:name {:doc "A person's name."
+                                     :inputSchema {:properties {:name {:doc  "A person's name."
+                                                                       :required true
                                                                        :type "text"}}
                                                    :type       "object"
                                                    :required   ["name"]}}
                                     {:name        "inc"
                                      :description "A simple tool that returns a greeting"
-                                     :inputSchema {:properties {:x {:doc "A number to increment."
+                                     :inputSchema {:properties {:x {:doc  "A number to increment."
+                                                                    :required true
                                                                     :type "number"}}
                                                    :type       "object"
                                                    :required   ["x"]}}]}}
@@ -97,6 +119,7 @@
         ;; Test 3: Call the foo tool
         ;; ; actually arrives from client:
         ;; {:jsonrpc "2.0", :method "tools/call", :params {:arguments {:x 5}, :name "inc"}, :id 6}
+
         (let [call-id       (send-test-request "tools/call" {:name "foo" :arguments {:name "AI"}})
               call-response (read-test-response)]
           (log/debug call-response)
@@ -114,6 +137,16 @@
                   :result  {:content [{:type "text", :text "6"}]
                             :isError false}}
                  call-response)))
+
+        (testing "missing arguments"
+          (let [call-id       (send-test-request "tools/call" {:name "inc" :arguments {:y 5}})
+                call-response (read-test-response)]
+            (log/debug call-response)
+            (is (= {:jsonrpc schema/json-rpc-version
+                    :id      call-id
+                    :result  {:isError true
+                              :content [{:type "text", :text "{:missing-tool-parameters (:x)}"}]}}
+                   call-response))))
 
         (finally
           (testing "order matters here"
