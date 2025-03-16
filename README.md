@@ -89,9 +89,12 @@ The `tools` macro just calls the `tool` macro and puts tools in a map keyed on t
   "Define your tools here."
   (tools/tools
     (greet
-      "Greets the user. Takes name"
-      [^{:type :string :doc "A person's name."} name]
-      (str "Hello, " name "!"))
+      "Greets a person by name."
+      [^{:type :string :doc "A person's first name." :required true} first-name
+       ^{:type :string :doc "A person's last name (optional)." :required false} last-name]
+      [(str "Hello from Modex, " (if last-name ; args can optional
+                                   (str first-name " " last-name)
+                                   first-name) "!")])
     
     (add
       "Adds two numbers."
@@ -113,11 +116,12 @@ The `tools` macro just calls the `tool` macro and puts tools in a map keyed on t
 (def my-mcp-server
   "Here we create a reified instance of AServer. Only tools are presently supported."
   (server/->server
-    {:name      "Modex MCP Server"
-     :version   "0.0.1"
-     :tools     my-tools
-     :prompts   nil
-     :resources nil}))
+    {:name       "Modex MCP Server"
+     :version    "0.0.1"
+     :initialize (fn [] "do long-running, blocking I/O setup here")
+     :tools      my-tools
+     :prompts    nil
+     :resources  nil}))
 ```
 
 ### Start your MCP Server
