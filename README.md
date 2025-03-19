@@ -9,6 +9,12 @@ Because it's native Clojure, you don't need to deal with Anthropic's [MCP Java S
 Modex implements the `stdio` transport, so no need for a proxy like
 [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy) to translate between SSE <=> stdio or vice versa.
 
+## Screenshot of Modex in Action
+
+Claude Desktop can talk to a Modex MCP Server via its MCP client:
+
+<img width="650" alt="image" src="https://github.com/user-attachments/assets/ef83b8da-1816-48c0-aba6-47b4b5623f7a" />
+
 ## Table of Contents
 
 1. [Quickstart](#quickstart)
