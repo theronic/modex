@@ -48,7 +48,6 @@
 
   With no delay, notification/initialized can be sent before the init request, but it still works. Will fix."
   []
-  (prn 'init-server)
   (Thread/sleep 1000)
   (reset! !server-ready? true))
 
