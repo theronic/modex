@@ -91,7 +91,7 @@
 
           (testing "initialize response should be followed by notifications/initalized")
           (let [init-notification (read-test-response)]
-            (prn 'init-notif init-notification)
+            ;(prn 'init-notif init-notification) ; todo: switch to Timbre.
             (is (= "notifications/initialized" (:method init-notification)))))
 
         ;; Test 2: List tools
