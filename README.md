@@ -48,7 +48,7 @@ Claude Desktop can talk to a Modex MCP Server via its MCP client:
 ```
 
 6. Restart Claude Desktop to activate your new MCP Server + tools :)
-7. Tell Claude to "run the inc tool with 123", authorize the tool and you should see an output of 126.
+7. Tell Claude to "run the inc tool with 123", authorize the tool and you should see an output of 124.
 
 ## What is MCP?
 
