@@ -27,6 +27,10 @@ Claude Desktop can talk to a Modex MCP Server via its MCP client:
 8. [FAQ](#faq)
 9. [Licence](#licence)
 
+## Example Tools
+
+- [Datomic MCP](https://github.com/datomic-mcp) uses Modex to expose Datomic tools so your models can query DB schema and data in dev or prod.
+
 ## Quickstart
 
 1. `git clone git@github.com:theronic/modex.git`
