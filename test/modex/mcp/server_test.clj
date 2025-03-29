@@ -48,7 +48,7 @@
                               :method "initialize"
                               :params {}}
                              (fn [msg]
-                               (prn 'send-msg msg)
+                               ; (prn 'send-msg msg) ; todo: switch to Timbre.
                                ; todo check contents
                                (reset! !inited true)))
       ; ok now to handle message

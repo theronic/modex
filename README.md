@@ -9,6 +9,12 @@ Because it's native Clojure, you don't need to deal with Anthropic's [MCP Java S
 Modex implements the `stdio` transport in the 2024-11-05 MCP spec, so no need for a proxy like
 [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy) to translate between SSE <=> stdio or vice versa.
 
+## Screenshot of Modex in Action
+
+Claude Desktop can talk to a Modex MCP Server via its MCP client:
+
+<img width="650" alt="image" src="https://github.com/user-attachments/assets/ef83b8da-1816-48c0-aba6-47b4b5623f7a" />
+
 ## Table of Contents
 
 1. [Quickstart](#quickstart)
@@ -20,6 +26,10 @@ Modex implements the `stdio` transport in the 2024-11-05 MCP spec, so no need fo
 7. [Rationale](#rationale)
 8. [FAQ](#faq)
 9. [Licence](#licence)
+
+## Example Tools
+
+- [Datomic MCP](https://github.com/theronic/datomic-mcp) uses Modex to expose Datomic tools so your models can query DB schema and data in dev or prod.
 
 ## Quickstart
 
@@ -42,7 +52,7 @@ Modex implements the `stdio` transport in the 2024-11-05 MCP spec, so no need fo
 ```
 
 6. Restart Claude Desktop to activate your new MCP Server + tools :)
-7. Tell Claude to "run the inc tool with 123", authorize the tool and you should see an output of 126.
+7. Tell Claude to "run the inc tool with 123", authorize the tool and you should see an output of 124.
 
 ## What is MCP?
 
