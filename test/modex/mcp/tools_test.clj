@@ -3,15 +3,43 @@
             [modex.mcp.tools :as tools]
             [jsonista.core :as json]))
 
+(deftest tool-macro-tests
+
+  (testing "tools/handler returns fn with :mcp metadata"
+    ; todo, infer :required via :or.
+    (let [handler (tools/handler
+                    [{:keys [title age]
+                      :or   {age 37}
+                      :type {title :string}
+                      :doc  {title "Person's name"}}]
+                    (str "Hi, " title " (" age ")"))]
+      (is (= '{:mcp {:type {title :string}
+                     :doc  {title "Person's name"}}})
+          (meta handler))
+      (is (= "Hi, Petrus (37)" (handler {:title "Petrus"}))))
+
+    (testing "tools/handler validates :type"
+      (is (thrown? AssertionError (tools/handler [{:keys [a b]
+                                                   :type {a :text}}]))))))
+
 (deftest tools-tests
   (testing "Tool argument types :text are correctly coerced to JSON"
     (json/write-value-as-string [{:x {:y [:z "hi"]}} :a :b] json/keyword-keys-object-mapper)
     (let [tool (tools/map->Tool
                  {:name :greet
                   :doc "Greeter"
-                  :args [(tools/->Parameter :name "A person's name" :text true)]})]
-      (is (= "{\"name\":\"greet\",\"description\":\"Greeter\",\"inputSchema\":{\"type\":\"object\",\"required\":[\"name\"],\"properties\":{\"name\":{\"type\":\"text\",\"doc\":\"A person's name\"}}}}"
-             (json/write-value-as-string (tools/tool->json-schema tool) json/keyword-keys-object-mapper)))))
+                  :args [(tools/map->Parameter {:name :name
+                                                :doc "A person's name"
+                                                :type :text
+                                                :required true})]})]
+      (is (= {:name        :greet
+              :description "Greeter"
+              :inputSchema {:type "object"
+                            :required [:name]
+                            :properties {:name {:type :text
+                                                :doc "A person's name"
+                                                :required true}}}}
+             (tools/tool->json-schema tool)))))
 
   (testing "we can make a tool"
     (let [adder (tools/tool (add [x y] (+ x y)))]
@@ -34,8 +62,14 @@
                         (+ x y)))]
     (is (= ({:name :add
              :doc  "add"
-             :args [(tools/->Parameter :x "x" :number true)
-                    (tools/->Parameter :y "y" :number true)]}
+             :args [(tools/map->Parameter {:name :x
+                                           :doc "x"
+                                           :type :number
+                                           :required true})
+                    (tools/map->Parameter {:name     :y
+                                           :doc      "y"
+                                           :type     :number
+                                           :required true})]}
             (dissoc add-tool :handler)))))
 
   (testing "we can define multiple tools"
@@ -47,12 +81,15 @@
                            (add [^{:type :number} a
                                  ^{:type :number} b]
                                 (+ a b))
-                           (subtract [^{:type :number} x
-                                      ^{:type :number} y]
+                           (subtract "Subtracts two numbers"
+                                     [{:keys [x y]
+                                       :type {x :number
+                                              y :number}
+                                       :or {y 0}}]
                                      (+ x y)))]
 
-      (is (= [{:name :greet,
-               :doc  "greet",
+      (is (= [{:name :greet
+               :doc  "greet"
                :args [(tools/map->Parameter {:name :name, :doc "name", :type :string, :required true})
                       (tools/map->Parameter {:name :birth-year, :doc "birth-year", :type :number, :required true})]}
               {:name :add
@@ -60,9 +97,9 @@
                :args [(tools/map->Parameter {:name :a, :doc "a", :type :number, :required true})
                       (tools/map->Parameter {:name :b, :doc "b", :type :number, :required true})]}
               {:name :subtract
-               :doc  "subtract"
+               :doc  "Subtracts two numbers"
                :args [(tools/map->Parameter {:name :x, :doc "x", :type :number, :required true})
-                      (tools/map->Parameter {:name :y, :doc "y", :type :number, :required true})]}]
+                      (tools/map->Parameter {:name :y, :doc "y", :type :number, :required false :default 0})]}]
              (map #(dissoc % :handler) (vals multiple-tools))))))
 
   (testing "tools can dispatch to external handlers works"

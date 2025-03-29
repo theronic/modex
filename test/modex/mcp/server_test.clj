@@ -103,7 +103,7 @@
             mcp-server           (server/->server {:tools fixture-basic-tools})]
         (log/warn (server/handle-request mcp-server missing-tool-request))
         ; todo missing tool should return error code invalid params
-        ; ; ugh this is broken. needs to be protocol level error.
+        ; this is broken. should be a protocol level error.
         (is (= {:jsonrpc schema/json-rpc-version
                 :id 4
                 :error {:content [{:type "text", :text (pr-str
@@ -141,26 +141,18 @@
                (server/handle-request mcp-server missing-args-req)))))))
 
 (deftest test-handle-initialize
-  (testing "handle-initialize returns two messages: capabilities + init notifs."
+  (testing "initialize returns capabilities and sends init notification."
     (let [init-request         {:id     1
                                 :method "initialize"
                                 :params {:protocolVersion schema/latest-protocol-version
                                          :capabilities    {}
                                          :clientInfo      {:name "Test Client" :version "1.0.0"}}}
           !notifications       (atom [])
-          notification-handler (fn [msg] (swap! !notifications conj msg))
-          test-tools           (mcp/create-toolset ; why are we testing this?
-                                 {:inc {:name :inc
-                                        :fn   (fn [x] (cc/inc x))
-                                        :doc  "Increments a number"
-                                        :args [{:name "x" :doc "x" :type :number}]}
-                                  :foo {:name :foo
-                                        :fn   (fn [] (str "Hello, World!"))
-                                        :doc  "Returns a greeting"
-                                        :args []}})
-          mcp-server           (server/->server {:tools test-tools})
+          notification-handler (fn [msg] (comment "until we have an async bus, we use :on-send-notification for testing."))
+          mcp-server           (server/->server {:initialize           (fn [] (log/warn "mcp-server initialize called"))
+                                                 :enqueue-notification (fn [msg] (swap! !notifications conj msg))
+                                                 :tools                fixture-basic-tools})
           init-response        (server/handle-request mcp-server init-request notification-handler)]
-      (prn 'init-response init-response)
       (is (= {:jsonrpc "2.0"
               :id      1
               :result  {:protocolVersion "2024-11-05"
@@ -170,14 +162,5 @@
                         :serverInfo      {:name nil, :version nil}}}
              init-response))
 
-      ;"notifications/initialized"
-      ;(Thread/sleep 100) ; do we need to sleep here because future?
       (is (= [{:jsonrpc "2.0"
                :method  "notifications/initialized"}] @!notifications)))))
-
-(comment
-  (ex-data
-    (ex-info (str "Unknown tool: ")
-             ; todo: we have error codes for this (method not found)
-             {:tool-name "hi"
-              :available #{:a :b}})))

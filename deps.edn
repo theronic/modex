@@ -10,8 +10,9 @@
            ; For JSON encoding:
            metosin/jsonista    {:mvn/version "0.3.13"}}
  :aliases {:dev   {}
-           :build {:deps       {io.github.clojure/tools.build {:git/tag "v0.9.6" :git/sha "8e78bcc"}}
-                   :ns-default build}
+           :build {:extra-paths ["src-build"]
+                   :deps        {io.github.clojure/tools.build {:git/tag "v0.9.6" :git/sha "8e78bcc"}}
+                   :ns-default  build}
            :test  {:extra-paths ["test"]
                    :extra-deps  {io.github.cognitect-labs/test-runner
                                  {:git/tag "v0.5.1" :git/sha "dfb30dd"}}

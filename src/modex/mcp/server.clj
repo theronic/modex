@@ -44,9 +44,10 @@
            tools resources prompts
            initialize
            on-receive
-           on-send]
+           on-send
+           enqueue-notification]
     :or   {protocol-version schema/latest-protocol-version
-           initialize identity}}]
+           initialize (fn [])}}]
   (reify AServer
     ; todo: add handle-message or handle-request
     (protocol-version [_this] protocol-version)
@@ -66,11 +67,13 @@
     (on-send [_this msg]
       (when on-send (on-send msg)))
 
+    (enqueue-notification [_this msg]
+      (when enqueue-notification
+        (enqueue-notification msg)))
+
     ; this is triggered by MCP client asking for init.
     (initialize [_this]
-      (if initialize
-        (initialize)                                        ; this can block.
-        true))
+      (initialize)) ; this can block.
 
     (list-tools [_this]
       (->> (vals tools)                                     ; tools is a map.
@@ -176,12 +179,18 @@
                                         :capabilities    (mcp/capabilities mcp-server) ; calls above.
                                         :serverInfo      {:name    (mcp/server-name mcp-server)
                                                           :version (mcp/version mcp-server)}}]
-                     ; we call on-init (better name?) and send ready notification (todo: bus).
-                     (future
-                       (mcp/initialize mcp-server)          ; should this be a delay?
-                       ; this will move to an async bus.
-                       ; hmm, if initialize is fast, this arrives before the init result.
-                       (send-notification (json-rpc/method "notifications/initialized"))) ; too coupled.
+                     (let [inited-notification (json-rpc/method "notifications/initialized")]
+                       (mcp/enqueue-notification mcp-server inited-notification) ; for testing w/o bus.
+                       (future
+                         (log/warn 'initialize)
+                         (try
+                           (mcp/initialize mcp-server)
+                           ; todo: consider only init notifs if initialize returned true.
+                           ; this will move to an async bus.
+                           ; note that if initialize is fast, this can arrive before the init result.
+                           (send-notification inited-notification)
+                           (catch Exception ex
+                             (log/error "MCP Server initialize failed: " (ex-message ex)))))) ; too coupled.
 
                      (json-rpc/result id init-response))
 

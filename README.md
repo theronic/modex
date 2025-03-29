@@ -6,7 +6,7 @@ Modex implements (most of) the [Model Context Protocol](https://modelcontextprot
 
 Because it's native Clojure, you don't need to deal with Anthropic's [MCP Java SDK](https://github.com/modelcontextprotocol/java-sdk).
 
-Modex implements the `stdio` transport, so no need for a proxy like
+Modex implements the `stdio` transport in the 2024-11-05 MCP spec, so no need for a proxy like
 [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy) to translate between SSE <=> stdio or vice versa.
 
 ## Table of Contents
@@ -52,7 +52,11 @@ MCP lets you augment your AI models with Tools, Resources & Prompts:
 - **Resources** are files and data it can read, like PDF bank statements.
 - **Prompts** are templated messages and workflows.
 
-For example, you could make a tool that fetches purchases from your bank's API and let the AI categorize your expenses, and then use another tool to write those expense categories to your accounting system, or to a database. Pretty cool.
+## Use Cases
+
+Modex is used by [datomic-mcp](https://github.com/theronic/datomic-mcp), which exposes our production Datomic databases to an MCP client like Claude Desktop. The AI model intelligently diagnoses support queries in production by reading our database schema and running queries that checks server state & IPs, so it can try to reach it and compare the desired state of VMs against the actual state in our clusters.
+
+Over time, I hope to automate the bulk of our recurring support queries using Modex + other MCP tools.
 
 ## What can Modex do?
 
@@ -62,11 +66,40 @@ There is an MCP server example in [src/modex/mcp/core.clj](src/modex/mcp/core.cl
 
 Your MCP client (e.g. Claude Desktop) can connect to this server and use exposed tools to provide additional context to your AI models.
 
+## Data Structures
+
+### Tools
+
+Internally, a tool is just `Tool` record with several `Parameter` arguments:
+
+- `(defrecord Tool [name doc args handler])`
+- `(defrecord Parameter [name doc type required default])`
+
+However, it is more convenient to define tools using the `tool` & `tools` macros below.
+
 ### Describe a tool with the `tool` macro:
+
+The `tool` macro acts like `defrecord`, where the handler definition takes a map of arguments ala `{:keys [arg1 arg2 ...]}` but with additional (optional) maps for `:type`, `:or` & `:doc`. This metadata is used to describe the tool to the MCP Client.
+
+- The MCP spec currently only supports `:string` & `:number` tool parameter types.
+- Presence in the `:or` map implies optionality.
+- Missing parameter docstrings default to `(str parameter-name)`. 
+
 ```clojure
 (require '[modex.mcp.tools :as tools])
 
-(def add-tool (tools/tool (add [x y] (+ x y))))
+(def add-tool
+  (tools/tool
+    ; feels like defrecord.
+    (add [{:keys [x y]
+           :type {x :number
+                  y :number}
+           :or   {y 0} ; y is optional.
+           :doc  {x "First number"
+                  y "Second number"}}]
+         ; tools should return collections
+         ; this will soon change to {:keys [success results ?error]}.
+         [(+ x y)])))
 ```
 
 ### Invoke a Tool with `invoke-tool`:
@@ -75,38 +108,48 @@ Invocation uses a map of arguments like an MCP client would for a `tools/call` r
 
 ```clojure
 (tools/invoke-tool add-tool {:x 5 :y 6}) ; Modex will map these arguments and call the handler.
-=> 11
+=> [11 nil]
 ```
+
+Tool invocation returns a vector of `[results ?error]`.
+
+Note: this will soon change to a map of `{:keys [success results ?error]}`. This may be a breaking change.
 
 ### Define a Toolset with `tools` macro
 
-The `tools` macro just calls the `tool` macro and puts tools in a map keyed on tool name (keyword):
+The `tools` macro just calls the `tool` macro for each tool definition and returns a map of tools keyed on tool name (keyword):
 
 ```clojure
-(require '[modex.mcp.tools :as tools])
-
 (def my-tools
   "Define your tools here."
   (tools/tools
     (greet
-      "Greets a person by name."
-      [^{:type :string :doc "A person's first name." :required true} first-name
-       ^{:type :string :doc "A person's last name (optional)." :required false} last-name]
-      [(str "Hello from Modex, " (if last-name ; args can optional
-                                   (str first-name " " last-name)
-                                   first-name) "!")])
+      "Greets a person by name." ; tools can have a docstring
+      [{:keys [first-name last-name]
+        :doc {first-name "A person's first name."
+              last-name  "A person's last name (optional)."}
+        :type {first-name :string
+               last-name  :string}
+        :or {last-name nil}}] ; last-name is optional, implied by presence in `:or` map.
+      ; tools should return collection, but will change to map of {:keys [success results ?error]}:
+      [(str "Hello from Modex, "
+            (if last-name ; args can be optional
+              (str first-name " " last-name)
+              first-name) "!")])
     
     (add
       "Adds two numbers."
+      ; Tool handler args also support deprecated vector arg-style,
+      ; but this is superseded by the newer map-destructuring style:
       [^{:type :number :doc "First number to add."} a
        ^{:type :number :doc "Second number to add."} b]
-      (+ a b))
+      [(+ a b)])
 
     (subtract
       "Subtracts two numbers (- a b)"
       [^{:type :number :doc "First number."} a
        ^{:type :number :doc "Second number."} b]
-      (- a b))))
+      [(- a b)])))
 ```
 
 ### Create a Modex MCP Server + tools:
@@ -118,10 +161,10 @@ The `tools` macro just calls the `tool` macro and puts tools in a map keyed on t
   (server/->server
     {:name       "Modex MCP Server"
      :version    "0.0.1"
-     :initialize (fn [] "do long-running, blocking I/O setup here")
+     :initialize (fn [] "Do long-running setup & blocking I/O here, like connecting to prod database.")
      :tools      my-tools
-     :prompts    nil
-     :resources  nil}))
+     :prompts    nil    ; Prompts are WIP.
+     :resources  nil})) ; Resources are WIP.
 ```
 
 ### Start your MCP Server
@@ -131,13 +174,6 @@ The `tools` macro just calls the `tool` macro and puts tools in a map keyed on t
 ```
 
 Or put that in your `-main` function.
-
-## Data Structures
-
-### Records
-
-- Tool: `(defrecord Tool [name doc args handler])`
-- Parameter – a Tool Parameter. `(defrecord Parameter [name doc type required])`
 
 ### Protocols
 
@@ -231,6 +267,7 @@ MCP supports two transport types:
 - [ ] Resources
 - [ ] Prompts
 - [ ] SSE support
+- [ ] Streaming HTTP Support (2025-03-26 MCP spec)
 
 ## Rationale
 
@@ -245,6 +282,11 @@ Not yet, but I'll add an nREPL soon so you can eval changes while Claude Desktop
 Btw. I tried to get it to run `clojure -M -m modex.mcp.server`, but you can't set Claude Desktop's working directory.
 
 So currently, I rebuild the uberjar and restart Claude Desktop. Will fix.
+
+## Thank You To Paid Modex Customers:
+
+- [Nextdoc](https://nextdoc.io/) – Document Streaming for Salesforce
+- [Huppi](https://www.huppi.io/) — Small Business Accounting Software
 
 ## License 
 

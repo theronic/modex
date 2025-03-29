@@ -13,21 +13,31 @@
   (tools/tools
     (greet
       "Greets a person by name."
-      [^{:type :string :doc "A person's first name." :required true} first-name
-       ^{:type :string :doc "A person's last name (optional)." :required false} last-name]
-      [(str "Hello from Modex, " (if last-name ; args can optional
-                                   (str first-name " " last-name)
-                                   first-name) "!")])
+      ; Tool handler arguments support {:keys [...] destructuring with maps for :doc, :type and :or.
+      ; Presence in :or implies optionality.
+      [{:keys [first-name last-name]
+        :doc  {first-name "A person's first name."
+               last-name  "A person's first name."}
+        :type {first-name :string
+               last-name  :string}
+        :or   {last-name nil}}]                             ; last-name is optional, first-name required
+      ; Presently, tools should return collections.
+      ; Upcoming change: tools will return a map of {:keys [success results ?error]}.
+      [(str "Hello from Modex, "
+            (if last-name
+              (str first-name " " last-name)
+              first-name) "!")])
 
     (inc
       "Increments a number."
+      ; also support vector arg-style with metadata. :required default is true.
       [^{:type :number :doc "x is a number to increment."} x]
       [(cc/inc x)])
 
     (range
       "Calls (range n) in Clojure and returns a seq."       ; demonstrates seq returns
       [^{:type :number :doc "(range n)"} n]
-      (cc/range n))
+      (cc/range n)) ; note (cc/range n) returns a coll.
 
     (add "Adds two numbers."
          [^{:type :number, :doc "1st Number"} a
@@ -48,8 +58,7 @@
 
   With no delay, notification/initialized can be sent before the init request, but it still works. Will fix."
   []
-  (prn 'init-server)
-  (Thread/sleep 1000)
+  ;(Thread/sleep 1000)
   (reset! !server-ready? true))
 
 (def my-mcp-server
