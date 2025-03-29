@@ -2,7 +2,7 @@
   (:require [clojure.tools.build.api :as b]))
 
 (def lib 'com.theronic/modex)
-(def version "0.0.2") ;(format "0.0.%s" (b/git-count-revs nil)))      ;(def version "0.1.0") once stable.
+(def version "0.2.0") ;(format "0.0.%s" (b/git-count-revs nil)))      ;(def version "0.1.0") once stable.
 (def class-dir "target/classes")
 (def basis (b/create-basis {:project "deps.edn"}))
 (def uberjar-filename (format "target/%s-%s.jar" (name lib) version))

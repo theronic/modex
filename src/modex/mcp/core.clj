@@ -17,7 +17,7 @@
       ; Presence in :or implies optionality.
       [{:keys [first-name last-name]
         :doc  {first-name "A person's first name."
-               last-name  "A person's first name."}
+               last-name  "A person's last name."}
         :type {first-name :string
                last-name  :string}
         :or   {last-name nil}}]                             ; last-name is optional, first-name required
