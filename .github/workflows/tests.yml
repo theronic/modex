@@ -14,9 +14,9 @@ jobs:
       - name: Cache Clojure Dependencies
         uses: actions/cache@v3
         with:
-          path:
-            - ~/.m2
-            - ~/.gitlibs
+          path: |
+            ~/.m2
+            ~/.gitlibs
           key: cache-${{ hashFiles('**/deps.edn') }}
           restore-keys: clojure-deps-
 
