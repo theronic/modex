@@ -35,7 +35,7 @@ Claude Desktop can talk to a Modex MCP Server via its MCP client:
 
 1. `git clone git@github.com:theronic/modex.git`
 2. `cd modex`
-3. `./build.sh` builds an uberjar at `target/modex-mcp-0.1.0.jar`.
+3. `./build.sh` builds an uberjar at `target/modex-mcp-0.2.2.jar`.
 4. Open your Claude Desktop Config at `~/Library/Application\ Support/Claude/claude_desktop_config.json`
 5. Configure a new MCP Server that will run the uberjar at its _full path_:
 
@@ -44,14 +44,14 @@ Claude Desktop can talk to a Modex MCP Server via its MCP client:
   "mcpServers": {
     "modex-mcp-hello-world": {
       "command": "java",
-      "args": ["-jar", "/Users/your-username/code/modex/target/modex-mcp-0.1.0.jar"]
+      "args": ["-jar", "/Users/your-username/code/modex/target/modex-mcp-0.2.2.jar"]
     }
   },
   "globalShortcut": ""
 }
 ```
 
-6. Restart Claude Desktop to activate your new MCP Server + tools :)
+6. Restart Claude Desktop to activate your new MCP Server + tools :) (Cmd+R refresh does not reload config, only restarts tools)
 7. Tell Claude to "run the inc tool with 123", authorize the tool and you should see an output of 124.
 
 ## What is MCP?
@@ -87,13 +87,13 @@ Internally, a tool is just `Tool` record with several `Parameter` arguments:
 
 However, it is more convenient to define tools using the `tool` & `tools` macros below.
 
-### Describe a tool with the `tool` macro:
+### Describe a single tool with the `tool` macro:
 
 The `tool` macro acts like `defrecord`, where the handler definition takes a map of arguments ala `{:keys [arg1 arg2 ...]}` but with additional (optional) maps for `:type`, `:or` & `:doc`. This metadata is used to describe the tool to the MCP Client.
 
 - The MCP spec currently only supports `:string` & `:number` tool parameter types.
 - Presence in the `:or` map implies optionality.
-- Missing parameter docstrings default to `(str parameter-name)`. 
+- Missing parameter docstrings default to parameter name string. 
 
 ```clojure
 (require '[modex.mcp.tools :as tools])
@@ -104,26 +104,27 @@ The `tool` macro acts like `defrecord`, where the handler definition takes a map
     (add [{:keys [x y]
            :type {x :number
                   y :number}
-           :or   {y 0} ; y is optional.
+           :or   {y 0} ; y is optional due to its presence in the :or map.
            :doc  {x "First number"
                   y "Second number"}}]
-         ; tools should return collections
-         ; this will soon change to {:keys [success results ?error]}.
-         [(+ x y)])))
+         [(+ x y)]))) ; tools should return a vector (to support multiple values).
 ```
 
-### Invoke a Tool with `invoke-tool`:
+### Invoke a Tool with `invoke-tool` incl. validation:
 
 Invocation uses a map of arguments like an MCP client would for a `tools/call` request:
 
 ```clojure
 (tools/invoke-tool add-tool {:x 5 :y 6}) ; Modex will map these arguments and call the handler.
-=> [11 nil]
+=> {:success true, :results [11]} ; note :results is vector to support multiple values.
 ```
 
-Tool invocation returns a vector of `[results ?error]`.
+### Invoke a tool handler directly to skip validation & error-handling:
 
-Note: this will soon change to a map of `{:keys [success results ?error]}`. This may be a breaking change.
+```clojure
+(tools/invoke-handler (:handler add-tool) {:x 5 :y 6})
+=> [11] ; note vector result to support multiple values.
+```
 
 ### Define a Toolset with `tools` macro
 
@@ -141,7 +142,7 @@ The `tools` macro just calls the `tool` macro for each tool definition and retur
         :type {first-name :string
                last-name  :string}
         :or {last-name nil}}] ; last-name is optional, implied by presence in `:or` map.
-      ; tools should return collection, but will change to map of {:keys [success results ?error]}:
+      ; tools should return collection.
       [(str "Hello from Modex, "
             (if last-name ; args can be optional
               (str first-name " " last-name)
@@ -159,7 +160,12 @@ The `tools` macro just calls the `tool` macro for each tool definition and retur
       "Subtracts two numbers (- a b)"
       [^{:type :number :doc "First number."} a
        ^{:type :number :doc "Second number."} b]
-      [(- a b)])))
+      [(- a b)])
+
+    (error-handling
+      "This tool throws intentionally. Modex will handle errors for you."
+      []
+      (throw (ex-info "Modex will handle exceptions." {})))))
 ```
 
 ### Create a Modex MCP Server + tools:
@@ -170,8 +176,9 @@ The `tools` macro just calls the `tool` macro for each tool definition and retur
   "Here we create a reified instance of AServer. Only tools are presently supported."
   (server/->server
     {:name       "Modex MCP Server"
-     :version    "0.0.1"
-     :initialize (fn [] "Do long-running setup & blocking I/O here, like connecting to prod database.")
+     :version    "0.0.2"
+     :initialize (fn [_init-params] ; init-params, but may contain client capabilities in future.
+                   "Do long-running setup & blocking I/O here, like connecting to prod database.")
      :tools      my-tools
      :prompts    nil    ; Prompts are WIP.
      :resources  nil})) ; Resources are WIP.
@@ -193,11 +200,13 @@ AServer Protocol:
 ```clojure
 (defprotocol AServer
   (protocol-version [this])
+  
   (server-name [this])
   (version [this])
 
   (capabilities [this])
-  (initialize [this])
+  
+  (initialize [this _init-params]) ; init-params is empty for now, but may contain client capabilities in future.
 
   (list-tools [this])
   (call-tool [this tool-name arg-map])
@@ -237,7 +246,7 @@ Add an element under `mcpServers` so it looks like this:
   "mcpServers": {
     "modex": {
       "command": "java",
-      "args": ["-jar", "/Users/your-username/code/modex/target/modex-mcp-0.1.0.jar"]
+      "args": ["-jar", "/Users/your-username/code/modex/target/modex-mcp-0.2.2.jar"]
     }
   },
   "globalShortcut": ""
@@ -273,11 +282,11 @@ MCP supports two transport types:
 - [x] Passing tests
 - [x] Ergonomics (AServer / AClient protocol?)
 - [x] Tools
-- [ ] nREPL for live changes to running process
+- [x] nREPL for live changes to running process
 - [ ] Resources
 - [ ] Prompts
-- [ ] SSE support
-- [ ] Streaming HTTP Support (2025-03-26 MCP spec)
+- [in progress] SSE support
+- [in progress] Streaming HTTP Support (2025-03-26 MCP spec)
 
 ## Rationale
 
