@@ -3,8 +3,16 @@
             [modex.mcp.server :as server]
             [modex.mcp.tools :as tools]
             [clojure.core :as cc]
-            [taoensso.timbre :as log])
+            [clojure.repl] ; just for pst stack trace.
+            [taoensso.timbre :as log]
+            [nrepl.server :as nrepl])
   (:gen-class))
+
+; Optional nREPL for live dev:
+(def nrepl-bind-address (System/getenv "NREPL_BIND_ADDRESS")) ; won't start if nil. usually 127.0.0.1
+(def nrepl-port (or (some-> (System/getenv "NREPL_PORT") (parse-long)) 4001))
+
+(server/redirect-logs-to-stderr!) ; any logs or prn's to stdio will break MCP over stdio transport.
 
 (def !server-ready? (atom false))
 
@@ -56,7 +64,7 @@
   Here we simulate a DB connect call that takes 1 second.
 
   With no delay, notification/initialized can be sent before the init request, but it still works. Will fix."
-  []
+  [init-params]
   ;(Thread/sleep 1000)
   (reset! !server-ready? true))
 
@@ -73,14 +81,29 @@
 (defn -main
   "Starts an MCP server that talks JSON-RPC over stdio/stdout."
   [& args]
-  (log/debug "Server starting via -main")
-  (try
-    (server/start-server! my-mcp-server)
-    (catch Throwable t
-      (log/debug "Fatal error in -main:" (.getMessage t))
-      (.printStackTrace t (java.io.PrintWriter. *err*)))))
+  (log/debug "Starting nREPL...")
+  (let [nrepl-server (if (and (string? nrepl-bind-address) (int? nrepl-port)) ; todo move nrepl config to args or env.
+                       (nrepl/start-server :bind nrepl-bind-address :port nrepl-port)
+                       nil)]
+    (log/debug "Server starting via -main")
+    (try
+      (server/start-server! my-mcp-server) ; todo: impl. shutdown signal (return fn?)
+      (catch Throwable t
+        (log/error "Fatal error in -main:" (.getMessage t))
+        (log/error "Stack trace:" (with-out-str (clojure.repl/pst)))
+        (.printStackTrace t (java.io.PrintWriter. *err*)))
+      (finally
+        (when nrepl-server
+          (nrepl/stop-server nrepl-server))))))
 
 (comment
+
+  (require '[clojure.repl])
+  (throw (ex-info "hi" {}))
+  (with-out-str (clojure.repl/pst))
+
+  (-main)
+
   "You can init server (this will call init-server):"
   (mcp/initialize my-mcp-server)
 

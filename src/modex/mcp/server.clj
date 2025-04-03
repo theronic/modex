@@ -8,18 +8,21 @@
             [modex.mcp.tools :as tools])
   (:gen-class))                                             ; gen-class should move to core with main.
 
-;; Configure Timbre to output to stderr so it shows up in MCP Server
-(log/set-config!
-  {:level :debug                                            ;info  ;; Set minimum logging level
-   :appenders
-   {:println
-    {:enabled?  true
-     :output-fn :inherit                                    ;; Use default output formatting
-     :fn        (fn [data]                                  ;; Custom appender function to use stderr
-                  (let [{:keys [output-fn]} data
-                        formatted-output (output-fn data)]
-                    (binding [*out* *err*]                  ;; Redirect to stderr
-                      (println formatted-output))))}}})
+(defn redirect-logs-to-stderr! []
+  ;; Configure Timbre to output to stderr so it shows up in MCP Server
+  (log/set-config!
+    {:level :debug                                          ;info  ;; Set minimum logging level
+     :appenders
+     {:println
+      {:enabled?  true
+       :output-fn :inherit                                  ;; Use default output formatting
+       :fn        (fn [data]                                ;; Custom appender function to use stderr
+                    (let [{:keys [output-fn]} data
+                          formatted-output (output-fn data)]
+                      (binding [*out* *err*]                ;; Redirect to stderr
+                        (println formatted-output))))}}}))
+
+(redirect-logs-to-stderr!) ; do we want this here?
 
 (defn format-tool-results
   "Format a tool result into the expected JSON-RPC text response format.
@@ -40,14 +43,13 @@
   "Returns a reified instance of AServer (an MCP Server),
   given tools, resources and prompts. Only tools are supported at this time."
   [{:keys [protocol-version
-           name version
+           name version initialize
            tools resources prompts
-           initialize
            on-receive
            on-send
            enqueue-notification]
     :or   {protocol-version schema/latest-protocol-version
-           initialize (fn [])}}]
+           initialize       (fn [_init-params])}}]
   (reify AServer
     ; todo: add handle-message or handle-request
     (protocol-version [_this] protocol-version)
@@ -71,9 +73,9 @@
       (when enqueue-notification
         (enqueue-notification msg)))
 
-    ; this is triggered by MCP client asking for init.
-    (initialize [_this]
-      (initialize)) ; this can block.
+    ; initialize is triggered by MCP client 'initialize' method request
+    (initialize [_this init-params] ; init-params empty for now.
+      (initialize init-params)) ; this can block.
 
     (list-tools [_this]
       (->> (vals tools)                                     ; tools is a map.
@@ -180,7 +182,7 @@
                        (future
                          (log/warn 'initialize)
                          (try
-                           (mcp/initialize mcp-server)
+                           (mcp/initialize mcp-server params)
                            ; todo: consider only init notifs if initialize returned true.
                            ; this will move to an async bus.
                            ; note that if initialize is fast, this can arrive before the init result.
@@ -277,5 +279,5 @@
                (recur))))))
      (log/debug "Exiting.")
      (catch Exception e
-       (log/debug "Critical error in server:" (.getMessage e))
+       (log/error "Critical error in server:" (.getMessage e))
        (.printStackTrace e (java.io.PrintWriter. *err*))))))

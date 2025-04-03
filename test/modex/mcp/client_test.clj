@@ -46,7 +46,9 @@
           client-reader      (io/reader client-in)
           client-writer      (io/writer client-to-server)
 
-          mcp-server         (server/->server {:initialize (fn [] (Thread/sleep 50))
+          mcp-server         (server/->server {:name "Test MCP Server"
+                                               :version "1.0.0"
+                                               :initialize (fn [init-params] (Thread/sleep 50))
                                                :tools      tool-fixtures})
           ;; Start the server in a separate thread
           stdio-server       (future (server/start-server! mcp-server server-reader server-writer))

@@ -40,7 +40,7 @@
                                    :version    "1.0"
                                    :on-receive (fn [msg] (swap! !rx conj msg))
                                    :on-send    (fn [msg] (swap! !tx conj msg))
-                                   :on-init    #(do (prn 'init-called) true) ; sample delay
+                                   :on-init    #(do (log/debug 'init-called) true) ; sample delay
                                    :tools      fixture-basic-tools})]
       ;(mcp/initialize server)
       (server/handle-message server
@@ -96,7 +96,7 @@
       (let [ex (try
                  (mcp/call-tool server :foo {:bad-arg "Petrus"})
                  (catch Exception ex
-                   (prn 'ex ex)
+                   ;(prn 'ex ex)
                    ex))
             ex-data (ex-data ex)
             ex-msg (ex-message ex)]

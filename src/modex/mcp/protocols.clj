@@ -17,7 +17,7 @@
   (send-notification [this notification] "Called after a has been sent.")
 
   (capabilities [this])
-  (initialize [this])
+  (initialize [this _init-params])
 
   (list-tools [this])
   (call-tool [this tool-name arg-map])

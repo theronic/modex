@@ -6,6 +6,7 @@
 (def re-version-format #"(\d+)\.(\d+)\.(\d+)")
 
 (comment
+  (get-git-tag)
   (re-matches re-version-format "0.2.0")
   (re-matches re-version-format "0.x.0"))
 
