@@ -7,6 +7,9 @@
            ; Interleaved logging
            com.taoensso/timbre {:mvn/version "6.7.0-alpha1"}
 
+           ; nREPL for live development / debugging of tools
+           nrepl/nrepl         {:mvn/version "1.3.1"}
+
            ; For JSON encoding:
            metosin/jsonista    {:mvn/version "0.3.13"}}
  :aliases {:dev   {}
