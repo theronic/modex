@@ -1,0 +1,46 @@
+name: Run Modex Unit Tests
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+jobs:
+  clojure:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Clojure Dependencies
+        uses: actions/cache@v3
+        with:
+          path:
+            - ~/.m2
+            - ~/.gitlibs
+          key: cache-${{ hashFiles('**/deps.edn') }}
+          restore-keys: clojure-deps-
+
+      - name: Prepare java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '24'
+
+      - name: Install clojure tools
+        uses: DeLaGuardo/setup-clojure@9.5
+        with:
+          cli: 1.12.0-alpha5    # Clojure CLI based on tools.deps
+          #cljstyle: 0.15.0 # cljstyle
+          #clj-kondo: 2022.10.05 # Clj-kondo
+
+      - name: Run Unit tests
+        run: clojure -X:test
+
+      #- name: "Lint with clj-kondo"
+      #  run: clj-kondo --lint deps.edn src resources test --config .clj-kondo/config-ci.edn
+
+      #- name: "Check Clojure Style"
+      #  run: cljstyle check --report
+
+      #- name: Package Clojure project
+      #  run: clojure -X:project/uberjar

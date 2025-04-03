@@ -50,39 +50,102 @@
     [(required-args tool)
      (input-schema tool)]))
 
-(defn missing-elements [required passed]
-  (remove (set passed) (set required)))
+(defn missing-elements
+  "Returns seq of elements in required that are not present in input."
+  [required input]
+  (remove (set input) (set required)))
 
 (comment
   (missing-elements #{:a :b} [:a]))
 
+(defn validate-arg-types
+  "Validates argument types based on tool parameter definitions"
+  [args arg-map]
+  ; this could be Malli if we generate schema in macros.
+  (let [type-errors (reduce (fn [errors arg]
+                              (let [arg-name  (:name arg)
+                                    arg-type  (:type arg)
+                                    arg-value (get arg-map arg-name)]
+                                (cond
+                                  (nil? arg-value) errors   ; Skip if nil (missing args checked elsewhere)
+                                  (and (= :number arg-type) (not (number? arg-value)))
+                                  (conj errors {:parameter arg-name
+                                                :expected  :number
+                                                :got       (type arg-value)})
+                                  (and (= :string arg-type) (not (string? arg-value)))
+                                  (conj errors {:parameter arg-name
+                                                :expected  :string
+                                                :got       (type arg-value)})
+                                  (and (= :text arg-type) (not (string? arg-value)))
+                                  (conj errors {:parameter arg-name
+                                                :expected  :text
+                                                :got       (type arg-value)})
+                                  :else errors)))
+                            [] args)]
+    (when (seq type-errors)
+      {:type-validation-errors type-errors})))
+
+(defn missing-tool-args
+  "Returns a seq of missing args or nil, for args with :required true."
+  [tool-args arg-map]
+  (let [required-args    (filter #(true? (:required %)) tool-args)
+        required-key-set (set (map :name required-args))]
+    (missing-elements required-key-set (keys arg-map))))
+
+(defn invoke-handler
+  "Invokes tool handler & arg-map.
+   WIP: validation is moving out of this. This will just return result straight up.
+   Performs validation on arguments (missing required, types).
+   Returns a map with :success and either :results or :errors."
+  [handler arg-map]
+  (try
+    (handler arg-map)
+    (catch Exception ex
+      (log/error ex "Tool handler exception: " (ex-message ex))
+      (throw (ex-info (ex-message ex)
+                      (assoc (ex-data ex) :cause :tool/exception))))))
+
 (defn invoke-tool
-  "Given a Tool & a map of arguments, arranges arguments and applies to handler in same thread.
-  Returns a vector with [data ?error].
-  ; TODO: check missing required vs. optional args.
-  ; TODO: Malli schema validation.
-  "
-  ; ok big todo is to return correct error for missing parameters.
-  [^Tool {:as _tool :keys [handler args]}, arg-map]
-  ;(log/debug "arg-map:" arg-map)
+  "1. Validates tool input parameters (missing args or wrong types)
+    - Missing params are reported as protocol-level errors via throw.
+  2. calls invoke-tool-handler, gathers result
+  3. Check success and returns result or error via {:keys [success results errors]}. Either:
+   - `{:success true  :results [...]}`, or
+   - `{:success false :errors  [...]}`
+
+  Packages result."
+  [^Tool {:as tool :keys [handler args]}
+   arg-map]
   (let [required-args    (filter #(true? (:required %)) args)
         required-key-set (set (map :name required-args))
-        ;_ (log/debug "required keys:" required-key-set)
         missing-args     (missing-elements required-key-set (keys arg-map))
-        _                (when (seq missing-args) (log/debug "missing:" missing-args))]
-    ; todo: switch to Malli schemas for required.
-    (if (seq missing-args)
-      [nil [{:missing-tool-parameters missing-args}]]
-      (let [arg-vec (->> (map :name args)
-                         (map arg-map))
-            results (apply handler arg-vec)]
-        [results nil]))))
-;(comment
-;  _ (assert (empty? missing-args)
-;            (str "Missing tool parameters: " (string/join "," missing-args)))))
-;(log/debug "arg-vec:" arg-vec)
-;(log/debug "handler" handler)
+        type-errors      (when (empty? missing-args)
+                           (validate-arg-types args arg-map))]
+    (cond
+      ;; Check for missing required arguments
+      (seq missing-args) ; throw on protocol-level error.
+      (throw (ex-info (str "Missing tool parameters: " (string/join ", " missing-args))
+                      {:code          schema/error-invalid-params ; ideally specify codes at server-level.
+                       :cause         :tool.exception/missing-parameters
+                       :provided-args (keys arg-map)
+                       :required-args required-key-set}))
 
+      ;; Validate argument types (tool-level error)
+      (seq type-errors)
+      {:success false
+       :errors   type-errors}
+
+      ;; Validation passed, invoke handler:
+      :else
+      (try
+        (let [results (invoke-handler handler arg-map)] ; can throw
+          {:success true
+           :results results})
+        (catch Exception ex
+          (log/error ex "Exception during tool handler invocation for" (:name tool) ": " (ex-message ex))
+          {:success false
+           :errors  [(ex-message ex)]})))))
+          ;(throw (ex-info (ex-message ex) (assoc (ex-data ex) :cause :tool/exception))))))))
 
 (comment
   (let [tool (->Tool :foo "test"
@@ -91,7 +154,7 @@
                                        :type     :string
                                        :required true})]
                      (fn [name] (str "Hi there, " name "!")))]
-    (invoke-tool tool {:name "Petrus"})))
+    (invoke-handler tool {:name "Petrus"})))
 
 (def mcp-meta-keys [:type :doc :required])
 
@@ -117,10 +180,14 @@
   ; todo use Malli schema for :type validation.
   [[map-arg] & body]
   {:pre [(map? map-arg)]}
-  (let [mcp-meta   (extract-mcp-meta map-arg)
-        clean-args [(apply dissoc map-arg mcp-meta-keys)]]
+  (let [mcp-meta     (extract-mcp-meta map-arg)
+        ;; Create a clean destructuring map for the let binding
+        let-map-arg# (apply dissoc map-arg mcp-meta-keys)
+        map-sym#     (gensym "arg-map-")]                   ; Generate a unique symbol for the map
     `(do (assert (every? #{:string :number} (vals (:type '~mcp-meta))) ":type must be one of :number or :string.")
-         (with-meta (fn ~clean-args ~@body)
+         (with-meta (fn [~map-sym#]                         ; Fn takes a single map argument
+                      (let [~let-map-arg# ~map-sym#]        ; Use clean map for let destructuring
+                        ~@body))
                     {:mcp '~mcp-meta}))))
 
 (defmacro tool-v1
@@ -135,7 +202,10 @@
 
         ;; Get args vector and function body
         args-vec# (first rest-body#)
-        fn-body#  (rest rest-body#)]
+        fn-body#  (rest rest-body#)
+
+        ;; Generate a sequence of keywords from arg names
+        arg-keywords# (mapv (fn [arg] `(keyword '~arg)) args-vec#)]
 
     ;; Return a quasiquoted form that will be evaluated at runtime
     `(let [arg-info# (vec (for [arg# '~args-vec#]
@@ -144,8 +214,17 @@
                                 {:name     (keyword arg#)
                                  :doc      (get m# :doc (str arg#))
                                  :type     (get m# :type :string)
-                                 :required (get m# :required true)}))))]
-       (->Tool ~tool-key# ~docstring# arg-info# (fn ~args-vec# ~@fn-body#)))))
+                                 :required (get m# :required true)}))))
+
+           ;; Runtime conversion function for v1 tools
+           v1-to-map-handler# (fn [arg-map#]
+                                ;; Extract values at runtime using arg keywords
+                                (let [arg-values# (map #(get arg-map# %) ~arg-keywords#)]
+                                  ;; Apply the original function to the extracted values
+                                  (apply
+                                     (fn ~args-vec# ~@fn-body#)
+                                     arg-values#)))]
+       (->Tool ~tool-key# ~docstring# arg-info# v1-to-map-handler#))))
 
 (defmacro tool-v2-argmap
   "Supersedes tool-v1. Expects map of handler args.
@@ -180,7 +259,7 @@
         type-map#  (get args-map# :type {})
         doc-map#   (get args-map# :doc {})
         or-map#    (get args-map# :or {})
-        or-keyset# (set (keys or-map#))]                     ; not required if key present in :or, even if nil.
+        or-keyset# (set (keys or-map#))]                    ; not required if key present in :or, even if nil.
 
     ;; Return a Tool instance with a handler function and parameter info
     `(let [arg-info#   (vec (for [k# '~keys-vec#]
@@ -230,7 +309,6 @@
   (tools
     (add [a b] (+ a b)))
 
-  (->Tool)
   (macroexpand '(tools
                   (add [a b] (+ a b)))))
 

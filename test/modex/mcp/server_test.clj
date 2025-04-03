@@ -18,7 +18,7 @@
          [(cc/inc x)])
     (broken-tool "A tool that throws for error tests."
          [^{:type :text :doc "Anything"} x]
-         (throw (ex-info "Tool throws intentionally" [{:error "Throws intentionally"}])))))
+         (throw (ex-info "Tool throws intentionally" {:cause "broken-tool"})))))
 
 (defn make-request [id method params]
   (let [request (cond-> {:jsonrpc "2.0"
@@ -92,41 +92,50 @@
              (mcp/list-tools server))))
 
     (testing "we can invoke tools via server. call-tool returns [?result ?error]."
-      (is (= [["Hello, Petrus!"] nil] (mcp/call-tool server :foo {:name "Petrus"})))
-      (is (= [nil [{:missing-tool-parameters '(:name)}]] (mcp/call-tool server :foo {:bad-arg "Petrus"}))))
+      (is (= {:success true, :results ["Hello, Petrus!"]} (mcp/call-tool server :foo {:name "Petrus"})))
+      (let [ex (try
+                 (mcp/call-tool server :foo {:bad-arg "Petrus"})
+                 (catch Exception ex
+                   (prn 'ex ex)
+                   ex))
+            ex-data (ex-data ex)
+            ex-msg (ex-message ex)]
+        (is (= "Missing tool parameters: :name" ex-msg))
+        (is (= :tool.exception/missing-parameters (:cause ex-data)))))
 
     (testing "handle-tools-call throws protocol-level error for unknown tools"
       ; this test is at wrong level
       (let [missing-tool-request {:id     4
                                   :method "tools/call"
-                                  :params {:name "unknown-tool"}}
+                                  :params {:name "unknown-tool"
+                                           :arguments {:missing-arg "abc"}}}
             mcp-server           (server/->server {:tools fixture-basic-tools})]
         (log/warn (server/handle-request mcp-server missing-tool-request))
         ; todo missing tool should return error code invalid params
         ; this is broken. should be a protocol level error.
         (is (= {:jsonrpc schema/json-rpc-version
                 :id 4
-                :error {:content [{:type "text", :text (pr-str
-                                                         {:error :missing-tool
-                                                          :tool-name "unknown-tool"
-                                                          :available-tools '(:foo :inc :broken-tool)})}]
-                        :isError true}}
+                :error {:code schema/error-invalid-params
+                        :message (str "Unknown tool: unknown-tool")}}
                (server/handle-request mcp-server missing-tool-request)))))
 
-    (testing "broken tools return error in result, not via protocol-level errors"
-      ; this test is at wrong level
+    (testing "broken tools return error in result (not via protocol-level errors)"
       (let [bad-tool-request {:id     4
                               :method "tools/call"
                               :params {:name "broken-tool", :arguments {:x ""}}}
             mcp-server       (server/->server {:tools fixture-basic-tools})]
         ; todo missing tool should return error code invalid params
+        ; {:error {:code 123
+        ;                        :message "Tool throws intentionally"}
+        ;                :jsonrpc schema/json-rpc-version
+        ;                :id      4}
         (is (= {:jsonrpc schema/json-rpc-version
                 :id      4
-                :result   {:content [{:type "text", :text "{:error \"Throws intentionally\"}"}]
-                           :isError true}}
+                :result   {:isError true
+                           :content [{:type "text", :text "Tool throws intentionally"}]}}
                (server/handle-request mcp-server bad-tool-request)))))
 
-    (testing "missing arguments should return error in result, not via protocol-level errors"
+    (testing "missing tool arguments are considered protocol-level errors"
       ; this test is at wrong level
       (let [missing-args-req {:id     4
                               :method "tools/call"
@@ -136,8 +145,8 @@
         ; todo missing tool should return error code invalid params
         (is (= {:jsonrpc schema/json-rpc-version
                 :id      4
-                :result   {:isError true
-                           :content [{:type "text", :text "{:missing-tool-parameters (:x)}"}]}}
+                :error {:code schema/error-invalid-params
+                        :message (str "Missing tool parameters: :x")}}
                (server/handle-request mcp-server missing-args-req)))))))
 
 (deftest test-handle-initialize

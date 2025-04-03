@@ -138,14 +138,14 @@
                             :isError false}}
                  call-response)))
 
-        (testing "missing arguments"
+        (testing "missing arguments are -32602 protocol-level errors"
           (let [call-id       (send-test-request "tools/call" {:name "inc" :arguments {:y 5}})
                 call-response (read-test-response)]
             (log/debug call-response)
             (is (= {:jsonrpc schema/json-rpc-version
                     :id      call-id
-                    :result  {:isError true
-                              :content [{:type "text", :text "{:missing-tool-parameters (:x)}"}]}}
+                    :error {:code schema/error-invalid-params
+                            :message "Missing tool parameters: :x"}}
                    call-response))))
 
         (finally

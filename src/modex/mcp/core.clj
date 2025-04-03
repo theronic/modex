@@ -45,10 +45,9 @@
          [(+ a b)])))
 
 (comment
-  ((fnil :required true) {:required nil})
-  (tools/invoke-tool (get my-tools :range) {:n 5})
-  (tools/invoke-tool (get my-tools :greet) {:first-name "Petrus"})
-  (tools/invoke-tool (get my-tools :add) {:a 10 :b 6}))
+  (tools/invoke-handler (get-in my-tools [:range :handler]) {:n 5})
+  (tools/invoke-handler (get-in my-tools [:greet :handler]) {:first-name "Petrus"})
+  (tools/invoke-handler (get-in my-tools [:add :handler]) {:a 10 :b 6}))
 
 (defn init-server
   "Blocking init function for long-running I/O like connecting to remote databases.
@@ -71,16 +70,6 @@
      :prompts    nil
      :resources  nil}))
 
-(comment
-  "You can init server (this will call init-server):"
-  (mcp/initialize my-mcp-server)
-
-  "You can list tools:"
-  (mcp/list-tools my-mcp-server)
-
-  "You can invoke a tool with:"                                      ; will probably rename to invoke.
-  (mcp/call-tool my-mcp-server :greet {:name "Petrus"}))
-
 (defn -main
   "Starts an MCP server that talks JSON-RPC over stdio/stdout."
   [& args]
@@ -90,3 +79,13 @@
     (catch Throwable t
       (log/debug "Fatal error in -main:" (.getMessage t))
       (.printStackTrace t (java.io.PrintWriter. *err*)))))
+
+(comment
+  "You can init server (this will call init-server):"
+  (mcp/initialize my-mcp-server)
+
+  "You can list tools:"
+  (mcp/list-tools my-mcp-server)
+
+  "You can invoke a tool with:"                             ; will probably rename to invoke.
+  (mcp/call-tool my-mcp-server :greet {:first-name "Petrus"}))

@@ -86,27 +86,18 @@
       ; returns [?result ?error]. Considering switching to maps, even for tool responses.
       ; This maps the argument map to the tool handler's expected arity, should validate MAlli schema and invokes the tool.
       [_this tool-name arg-map]
-      (log/debug "call-tool:" tool-name arg-map)
+      ;(log/debug "call-tool:" tool-name arg-map)
 
-      (let [tool-key (keyword tool-name)                    ;; hoist to caller?
-            tool     (get tools tool-key)]
-
+      (let [tool-key (keyword tool-name)                    ; can throw?
+            tool     (if tool-key (get tools tool-key))]    ; is casting to keyword not a server impl. detail?
+        ;(log/debug "tool:" tool)
         (if-not tool
-          ; is this exception handled properly by caller?
-          ; todo better exceptions here to handle missing stuff in router.
-          [nil [{:error           :missing-tool
-                 :tool-name       tool-name
-                 :available-tools (keys tools)}]]
-          ;(throw (ex-info (str "Unknown tool: " tool-name)
-          ;                ; todo: we have error codes for this (method not found)
-          ;                [{:tool-name tool-name
-          ;                  :available (keys tools)}]))
-          (try
-            (tools/invoke-tool tool arg-map)
-            (catch Exception ex
-              ; todo better exception handling.
-              ;(prn 'call-tool-ex (pr-str ex))
-              (throw ex))))))))
+          (throw (ex-info (str "Unknown tool: " (str tool-name))
+                          ; invalid params also used for missing tool (weird).
+                          {:code      schema/error-invalid-params
+                           :cause     :tool.exception/missing-tool
+                           :tool/name tool-name}))
+          (tools/invoke-tool tool arg-map))))))
 
 (defn read-json-rpc-message
   "Reads a JSON value from reader and coerces map string keys to keywords.
@@ -143,21 +134,26 @@
   "Handles tools/call request and invokes tool. Returns JSON-RPC result or error.
   Errors need work."
   [server {:as _request :keys [id params]}]
-  ;(log/debug "Handling tools/call request (ID " id ") with params:" (pr-str params))
+  (log/debug "Handling tools/call request (ID " id ") with params:" (pr-str params))
   (let [{tool-name :name
          arg-map   :arguments} params]
     (try
-      (let [[results ?errors] (mcp/call-tool server tool-name arg-map)]
-        (if ?errors
-          (do
-            (log/debug "Tool Error:" ?errors)
-            (->> (format-tool-errors ?errors)               ; note that tool errors are reported via a normal JSON-RPC result, but with isError = true.
-                 (json-rpc/result id)))
+      (let [{:keys [success results errors]} (mcp/call-tool server tool-name arg-map)]
+        (if success
           (->> (format-tool-results results)
-               (json-rpc/result id))))
-      (catch Exception ex                                   ; this is unexpected now.
+               (json-rpc/result id))
+          (do
+            (log/debug "Tool Error:" errors)
+            (->> (format-tool-errors errors)               ; note that tool errors are reported via a normal JSON-RPC result, but with isError = true.
+                 (json-rpc/result id)))))
+      (catch Exception ex                                   ; unexpected (non-tool) exception:
+        (log/debug "handle-tool-call-request exception:" ex)
         ; note that tool errors are reported via a normal JSON-RPC result, but with isError = true.
-        (json-rpc/result id (format-tool-errors (ex-data ex)))))))
+        (let [err-data (ex-data ex)]
+          ; todo: hoist tool parameters up to request handler.
+          ; note that tool errors are reported via a normal JSON-RPC result, but with isError = true.
+          (json-rpc/error id {:code    (:code err-data)     ; is this always present?
+                              :message (ex-message ex)}))))))
 
 ;; Main request dispatcher
 (defn handle-request

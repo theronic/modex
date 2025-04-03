@@ -42,18 +42,27 @@
              (tools/tool->json-schema tool)))))
 
   (testing "we can make a tool"
-    (let [adder (tools/tool (add [x y] (+ x y)))]
+    (let [adder (tools/tool (add [{:keys [x y]
+                                   :type {x :number
+                                          y :number}}]
+                                 [(+ x y)]))]
       (testing "and we can invoke that tool with an argument map."
-        (is (= [13 nil] (tools/invoke-tool adder {:x 6 :y 7}))))))
+        (is (= {:success true :results [13]} (tools/invoke-tool adder {:x 6 :y 7}))))))
 
   (testing "tools macro just calls tool for each tool definition and returns a map from (keyword tool-name) => tool."
     (let [my-tools (tools/tools
-                     (add "Adds two numbers." [x y] (+ x y))
-                     (subtract "Subtracts two numbers (b from a)" [a b] (- a b)))]
+                     (add "Adds two numbers."
+                       [{:keys [x y]
+                         :type {x :number
+                                y :number}}]
+                       [(+ x y)])
+                     (subtract "Subtracts two numbers (b from a)"
+                       [^{:type :number} a,
+                        ^{:type :number} b] [(- a b)]))]
       (testing "can invoke tool"
         (let [{:keys [add subtract]} my-tools]
-          (is (= [11 nil] (tools/invoke-tool add {:x 5, :y 6})))
-          (is (= [3 nil] (tools/invoke-tool subtract {:a 10 :b 7})))))))
+          (is (= {:success true, :results [11]} (tools/invoke-tool add {:x 5, :y 6})))
+          (is (= {:success true, :results [3]} (tools/invoke-tool subtract {:a 10 :b 7})))))))
 
   (testing "docstrings are optional (defaults to tool name)")
   (let [add-tool (tools/tool
@@ -73,20 +82,21 @@
             (dissoc add-tool :handler)))))
 
   (testing "we can define multiple tools"
-    (let [multiple-tools (tools/tools
-                           (greet [^{:type :string} name
-                                   ^{:type :number} birth-year]
-                                  (let [current-year (+ 1900 (.getYear (java.util.Date.)))] ; => 2025])
-                                    (str "Hello, " name "! You are " (- current-year birth-year) " years old :)")))
-                           (add [^{:type :number} a
-                                 ^{:type :number} b]
-                                (+ a b))
-                           (subtract "Subtracts two numbers"
-                                     [{:keys [x y]
-                                       :type {x :number
-                                              y :number}
-                                       :or {y 0}}]
-                                     (+ x y)))]
+    (let [multiple-tools
+          (tools/tools
+            (greet [^{:type :string} name
+                    ^{:type :number} birth-year]
+                   (let [current-year (+ 1900 (.getYear (java.util.Date.)))] ; => 2025])
+                     (str "Hello, " name "! You are " (- current-year birth-year) " years old :)")))
+            (add [^{:type :number} a
+                  ^{:type :number} b]
+                 (+ a b))
+            (subtract "Subtracts two numbers"
+                      [{:keys [x y]
+                        :type {x :number
+                               y :number}
+                        :or {y 0}}]
+                      (+ x y)))]
 
       (is (= [{:name :greet
                :doc  "greet"
@@ -107,11 +117,12 @@
           tools-with-handlers (tools/tools
                                 (add "" [^{:type :number} a
                                          ^{:type :number} b]
-                                     (add-handler a b))
-                                (subtract "" [^{:type :number} x
-                                              ^{:type :number} y]
-                                          (- x y)))
+                                  [(add-handler a b)])
+                                (subtract "subtracts two numbers"
+                                  [^{:type :number} x
+                                   ^{:type :number} y]
+                                  [(- x y)]))
           add-tool (get tools-with-handlers :add)
           subtract-tool (get tools-with-handlers :subtract)]
-      (is (= [11 nil] (tools/invoke-tool add-tool {:a 5 :b 6})))
-      (is (= [4 nil] (tools/invoke-tool subtract-tool {:x 10 :y 6}))))))
+      (is (= {:success true :results [11]} (tools/invoke-tool add-tool {:a 5 :b 6})))
+      (is (= {:success true :results [4]} (tools/invoke-tool subtract-tool {:x 10 :y 6}))))))
