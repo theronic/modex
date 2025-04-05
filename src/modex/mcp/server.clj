@@ -119,18 +119,21 @@
                :message "Parse error"}})))
 
 ; can move to JSON-RPC-specific namespace.
-(defn write-json-rpc-message
-  "Concurrency-safe JSON writes. Locks writer during .write & .flush."
+(defn write-json-rpc!
+  "Concurrency-safe JSON writes. Locks writer during .write & .flush.
+  Returns string written on success, nil otherwise."
   [writer message]
   (try
     (let [json-str (json/write-value-as-string message json/keyword-keys-object-mapper)]
       (log/debug "Server Sending message:" json-str)
       (locking writer
         (.write writer (str json-str "\n"))
-        (.flush writer)))
+        (.flush writer))
+      json-str)
     (catch Exception e
       (log/debug "Error writing message:" (.getMessage e))
-      (.printStackTrace e (java.io.PrintWriter. *err*)))))
+      (.printStackTrace e (java.io.PrintWriter. *err*))
+      nil)))
 
 (defn handle-tool-call-request
   "Handles tools/call request and invokes tool. Returns JSON-RPC result or error.
@@ -261,7 +264,7 @@
   ([server reader writer]
    (log/debug "Starting Modex MCP server...")
    (try
-     (let [send-notification-handler (fn [message] (write-json-rpc-message writer message))]
+     (let [send-notification-handler (fn [message] (write-json-rpc! writer message))]
        (loop []
          (log/debug "Waiting for request...")
          (let [message (read-json-rpc-message reader)]
@@ -271,13 +274,16 @@
              (do                                            ; we exit here.
                (log/debug "Reader returned nil, client probably disconnected"))
 
-             (let [?response (handle-message server message send-notification-handler)]
-               (when ?response
-                 (log/debug "Responding with messages: " (pr-str ?response))
-                 (mcp/on-send server ?response)             ; tracking for send events.
-                 (write-json-rpc-message writer ?response))
-               (recur))))))
+             (do (future
+                   (let [?response (handle-message server message send-notification-handler)]
+                     (when ?response
+                       (log/debug "Responding with messages: " (pr-str ?response))
+                       (mcp/on-send server ?response)       ; tracking for send events.
+                       (write-json-rpc! writer ?response)))) ; this has locks.
+                 (recur))))))
+
      (log/debug "Exiting.")
      (catch Exception e
        (log/error "Critical error in server:" (.getMessage e))
        (.printStackTrace e (java.io.PrintWriter. *err*))))))
+

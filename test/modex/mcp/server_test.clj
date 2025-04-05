@@ -136,7 +136,6 @@
                (server/handle-request mcp-server bad-tool-request)))))
 
     (testing "missing tool arguments are considered protocol-level errors"
-      ; this test is at wrong level
       (let [missing-args-req {:id     4
                               :method "tools/call"
                               :params {:name "broken-tool"}}
